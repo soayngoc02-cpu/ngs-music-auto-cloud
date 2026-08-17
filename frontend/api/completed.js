@@ -36,7 +36,6 @@ module.exports = async function handler(req, res) {
     const requestedLimit = Number(req.query.limit || 36);
     const limit = Math.max(1, Math.min(60, Number.isFinite(requestedLimit) ? requestedLimit : 36));
 
-    // New immutable history plus old latest pointers so legacy renders still appear.
     const [historyObjects, legacyObjects] = await Promise.all([
       listJson('jobs/history/', 200),
       listJson('jobs/done/', 200),
@@ -65,6 +64,7 @@ module.exports = async function handler(req, res) {
         items.push({
           job_id: job.job_id || '',
           render_id: job.render_id || job.job_id || '',
+          record_key: obj.Key,
           completed_at: job.completed_at || job.created_at || obj.LastModified || null,
           created_at: job.created_at || null,
           aspect_ratio: job.aspect_ratio || '',
