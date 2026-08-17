@@ -26,7 +26,9 @@ async function listJson(prefix, maxKeys = 100) {
     Prefix: prefix,
     MaxKeys: maxKeys,
   }));
-  return (result.Contents || []).filter((obj) => obj.Key && obj.Key.endsWith('.json'));
+  return (result.Contents || [])
+    .filter((obj) => obj.Key && obj.Key.endsWith('.json'))
+    .sort((a, b) => new Date(b.LastModified || 0) - new Date(a.LastModified || 0));
 }
 
 module.exports = async function handler(req, res) {
@@ -41,9 +43,8 @@ module.exports = async function handler(req, res) {
       listJson('jobs/done/', 200),
     ]);
 
-    const source = [...historyObjects, ...legacyObjects]
-      .sort((a, b) => new Date(b.LastModified || 0) - new Date(a.LastModified || 0));
-
+    // Always prefer immutable history records. Latest pointers are legacy/fallback only.
+    const source = [...historyObjects, ...legacyObjects];
     const seenOutputs = new Set();
     const items = [];
 
