@@ -25,6 +25,17 @@ async function managerGet(path) {
   return body;
 }
 
+async function managerPost(path, payload) {
+  const res = await fetch(`${MANAGER_API_BASE()}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+  return body;
+}
+
 function formatBytes(bytes) {
   const value = Number(bytes || 0);
   if (value < 1024) return `${value} B`;
@@ -53,6 +64,32 @@ function basename(key) {
   return String(key || '').split('/').pop() || '—';
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+async function deleteLibraryItem(kind, item, button) {
+  const label = kind === 'music' ? 'bài nhạc' : kind === 'image' ? 'hình ảnh' : 'file lời bài hát';
+  if (!window.confirm(`Xóa ${label} này khỏi Cloud?\n\n${basename(item.key)}\n\nThao tác này không thể hoàn tác.`)) return;
+  const old = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Đang xóa…';
+  try {
+    await managerPost('/api/delete-media', { kind, key: item.key });
+    await refreshLibraryKind(kind);
+    window.dispatchEvent(new CustomEvent('ngs:library-changed', { detail: { kind, key: item.key } }));
+  } catch (err) {
+    alert(`Không xóa được: ${err.message}`);
+    button.disabled = false;
+    button.textContent = old;
+  }
+}
+
 async function refreshLibraryKind(kind) {
   const map = { music: 'musicLibrary', image: 'imageLibrary', lyrics: 'lyricsLibrary' };
   const host = document.getElementById(map[kind]);
@@ -73,8 +110,13 @@ async function refreshLibraryKind(kind) {
           <strong title="${escapeHtml(item.key)}">${escapeHtml(basename(item.key))}</strong>
           <small>${escapeHtml(formatDate(item.uploaded))}</small>
         </div>
-        <span>${escapeHtml(formatBytes(item.size))}</span>
+        <div class="manager-media-actions">
+          <span>${escapeHtml(formatBytes(item.size))}</span>
+          <button class="danger-small" type="button">Xóa</button>
+        </div>
       `;
+      const deleteButton = q('.danger-small', row);
+      deleteButton?.addEventListener('click', () => deleteLibraryItem(kind, item, deleteButton));
       host.append(row);
     }
   } catch (err) {
@@ -90,15 +132,6 @@ async function refreshLibraries(force = false) {
     refreshLibraryKind('image'),
     refreshLibraryKind('lyrics'),
   ]);
-}
-
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
 }
 
 function installCompletedManager() {
@@ -128,6 +161,27 @@ function installCompletedManager() {
 
   q('#refreshCompletedBtn')?.addEventListener('click', () => refreshCompleted(true));
   q('#completedSearch')?.addEventListener('input', renderCompleted);
+}
+
+async function deleteCompleted(item, button) {
+  if (!window.confirm(`Xóa video đã render này khỏi Cloud?\n\n${item.job_id || ''}\n${item.render_id || ''}\n\nMP4 sẽ bị xóa vĩnh viễn.`)) return;
+  const old = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Đang xóa…';
+  try {
+    await managerPost('/api/delete-media', {
+      kind: 'video',
+      output_key: item.output_key,
+      record_key: item.record_key,
+      job_id: item.job_id,
+    });
+    completedItems = completedItems.filter((candidate) => candidate.output_key !== item.output_key);
+    renderCompleted();
+  } catch (err) {
+    alert(`Không xóa được video: ${err.message}`);
+    button.disabled = false;
+    button.textContent = old;
+  }
 }
 
 function renderCompleted() {
@@ -180,9 +234,12 @@ function renderCompleted() {
         <div class="completed-actions">
           <a class="secondary manager-link" href="${escapeHtml(item.view_url)}" target="_blank" rel="noopener">Xem lớn</a>
           <a class="primary manager-link" href="${escapeHtml(item.download_url)}" target="_blank" rel="noopener">Tải MP4</a>
+          <button class="danger manager-delete-video" type="button">Xóa</button>
         </div>
       </div>
     `;
+    const deleteButton = q('.manager-delete-video', card);
+    deleteButton?.addEventListener('click', () => deleteCompleted(item, deleteButton));
     grid.append(card);
   });
 }
@@ -215,7 +272,6 @@ function wireAutoRefresh() {
     });
   });
 
-  // Existing manual refresh buttons now always bypass browser/API caches too.
   document.querySelectorAll('[data-load-library]').forEach((button) => {
     button.addEventListener('click', () => setTimeout(() => refreshLibraryKind(button.dataset.loadLibrary), 0));
   });
@@ -229,6 +285,10 @@ function wireAutoRefresh() {
     if (document.visibilityState !== 'visible') return;
     if (currentView() === 'library') refreshLibraries();
     if (currentView() === 'outputs') refreshCompleted();
+  });
+
+  window.addEventListener('ngs:library-changed', () => {
+    if (currentView() === 'library') refreshLibraries(true);
   });
 
   const status = document.getElementById('jobStatusPill');
@@ -247,7 +307,6 @@ ensureManagerStyles();
 installCompletedManager();
 wireAutoRefresh();
 
-// Warm the data on every fresh page load so tabs are current when opened.
 setTimeout(() => {
   refreshLibraries(true);
   refreshCompleted(true);
