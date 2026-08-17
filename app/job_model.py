@@ -10,6 +10,8 @@ class RenderJob:
     image_key: str
     audio_key: str
     output_key: str
+    music_mode: str
+    audio_start_sec: float
     aspect_ratio: str
     quality: str
     fps: int
@@ -33,6 +35,14 @@ def parse_render_job(data: dict[str, Any]) -> RenderJob:
         raise ValueError('image_key is required')
 
     audio_key = str(data.get('audio_key', '')).strip()
+    music_mode = str(data.get('music_mode', 'file' if audio_key else 'auto')).strip().lower()
+    if music_mode not in {'auto', 'file', 'manual'}:
+        raise ValueError(f'Unsupported music_mode: {music_mode}')
+
+    audio_start_sec = float(data.get('audio_start_sec', 0) or 0)
+    if audio_start_sec < 0:
+        raise ValueError('audio_start_sec cannot be negative')
+
     aspect_ratio = str(data.get('aspect_ratio', '9:16')).strip()
     quality = str(data.get('quality', '1080')).strip().lower()
     width, height = resolve_preset(aspect_ratio, quality)
@@ -40,6 +50,10 @@ def parse_render_job(data: dict[str, Any]) -> RenderJob:
     output_key = str(data.get('output_key', '')).strip() or f'output/{job_id}.mp4'
     fps = int(data.get('fps', 30) or 30)
     duration_sec = float(data.get('duration_sec', 0) or 0)
+    if duration_sec < 0:
+        raise ValueError('duration_sec cannot be negative')
+    if music_mode == 'manual' and duration_sec <= 0:
+        raise ValueError('Manual music trim requires duration_sec > 0')
 
     lyrics = data.get('lyrics') or {}
     lyrics_source = str(lyrics.get('source', 'auto')).strip().lower()
@@ -51,6 +65,8 @@ def parse_render_job(data: dict[str, Any]) -> RenderJob:
         image_key=image_key,
         audio_key=audio_key,
         output_key=output_key,
+        music_mode=music_mode,
+        audio_start_sec=audio_start_sec,
         aspect_ratio=aspect_ratio,
         quality=quality,
         fps=fps,
