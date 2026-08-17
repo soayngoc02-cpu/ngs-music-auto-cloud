@@ -1,4 +1,4 @@
-const { PutObjectCommand } = require('@aws-sdk/client-s3');
+const { PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const { client, bucket, safeName, required } = require('./_r2');
 
 const PRESETS = {
@@ -29,7 +29,15 @@ async function triggerWorkflow(jobKey) {
   }
 }
 
+async function removeOldStatus(jobId) {
+  await Promise.allSettled([
+    client().send(new DeleteObjectCommand({ Bucket: bucket(), Key: `jobs/done/${jobId}.json` })),
+    client().send(new DeleteObjectCommand({ Bucket: bucket(), Key: `jobs/failed/${jobId}.json` })),
+  ]);
+}
+
 module.exports = async function handler(req, res) {
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
   try {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
     const body = req.body || {};
@@ -60,12 +68,17 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: 'Manual trim requires duration_sec > 0' });
     }
 
+    const now = new Date();
+    const renderStamp = now.toISOString().replace(/[-:.TZ]/g, '').slice(0, 14) + '-' + String(now.getMilliseconds()).padStart(3, '0');
+    const renderId = `${jobId}-${renderStamp}`;
     const lyrics = body.lyrics || {};
+    const outputKey = String(body.output_key || `output/${jobId}/${renderId}.mp4`);
     const job = {
       job_id: jobId,
+      render_id: renderId,
       image_key: String(body.image_key),
       audio_key: String(body.audio_key || ''),
-      output_key: String(body.output_key || `output/${jobId}.mp4`),
+      output_key: outputKey,
       music_mode: musicMode,
       audio_start_sec: audioStartSec,
       audio_end_sec: Number(body.audio_end_sec || 0),
@@ -83,8 +96,12 @@ module.exports = async function handler(req, res) {
       requested_width: width,
       requested_height: height,
       status: 'pending',
-      created_at: new Date().toISOString(),
+      created_at: now.toISOString(),
     };
+
+    // Remove latest status pointers so a new render with the same content code
+    // can never be mistaken for an older completed render.
+    await removeOldStatus(jobId);
 
     const jobKey = `jobs/pending/${jobId}.json`;
     await client().send(new PutObjectCommand({
@@ -92,11 +109,12 @@ module.exports = async function handler(req, res) {
       Key: jobKey,
       Body: JSON.stringify(job, null, 2),
       ContentType: 'application/json; charset=utf-8',
+      CacheControl: 'no-store',
     }));
 
     try {
       await triggerWorkflow(jobKey);
-      return res.status(202).json({ ok: true, job_key: jobKey, job });
+      return res.status(202).json({ ok: true, job_key: jobKey, render_id: renderId, job });
     } catch (err) {
       const failed = { ...job, status: 'dispatch_failed', error: err.message };
       await client().send(new PutObjectCommand({
@@ -104,8 +122,9 @@ module.exports = async function handler(req, res) {
         Key: `jobs/failed/${jobId}.json`,
         Body: JSON.stringify(failed, null, 2),
         ContentType: 'application/json; charset=utf-8',
+        CacheControl: 'no-store',
       }));
-      return res.status(502).json({ error: err.message, job_key: jobKey });
+      return res.status(502).json({ error: err.message, job_key: jobKey, render_id: renderId });
     }
   } catch (err) {
     return res.status(500).json({ error: err.message || String(err) });
