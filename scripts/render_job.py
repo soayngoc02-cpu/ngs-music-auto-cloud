@@ -42,6 +42,7 @@ def main() -> int:
     parser.add_argument('--width', type=int, default=1080)
     parser.add_argument('--height', type=int, default=1920)
     parser.add_argument('--fps', type=int, default=30)
+    parser.add_argument('--duration', type=float, default=0, help='Optional render duration in seconds; 0 means full audio')
     args = parser.parse_args()
 
     with tempfile.TemporaryDirectory(prefix='ngs-render-') as tmp:
@@ -67,6 +68,7 @@ def main() -> int:
             width=args.width,
             height=args.height,
             fps=args.fps,
+            duration_sec=args.duration if args.duration > 0 else None,
         )
 
         print('Uploading output:', args.output_key)
