@@ -1,0 +1,89 @@
+name: Test Real R2 Assets
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/test-real-assets.yml'
+  workflow_dispatch:
+
+jobs:
+  render-real-assets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Find first uploaded music and image in R2
+        id: assets
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          python - <<'PY'
+          import os
+          from app.r2 import list_keys
+
+          audio_ext = ('.wav', '.mp3', '.m4a', '.aac', '.flac', '.ogg')
+          image_ext = ('.jpg', '.jpeg', '.png', '.webp')
+
+          audios = sorted(k for k in list_keys('music/original/') if k.lower().endswith(audio_ext))
+          images = sorted(k for k in list_keys('images/') if k.lower().endswith(image_ext))
+
+          if not audios:
+              raise SystemExit('Không tìm thấy file nhạc trong music/original/')
+          if not images:
+              raise SystemExit('Không tìm thấy file hình trong images/')
+
+          audio = audios[0]
+          image = images[0]
+          print('AUDIO:', audio)
+          print('IMAGE:', image)
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
+              f.write(f'audio_key={audio}\n')
+              f.write(f'image_key={image}\n')
+          PY
+
+      - name: Render real uploaded assets on GitHub runner
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          python scripts/render_job.py \
+            --image-key "${{ steps.assets.outputs.image_key }}" \
+            --audio-key "${{ steps.assets.outputs.audio_key }}" \
+            --output-key "output/test-real-assets.mp4" \
+            --width 1080 \
+            --height 1920 \
+            --fps 30
+
+      - name: Verify output exists in R2
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          python - <<'PY'
+          from app.r2 import list_keys
+          key = 'output/test-real-assets.mp4'
+          if key not in list_keys('output/'):
+              raise SystemExit('Output chưa xuất hiện trên R2')
+          print('REAL ASSET TEST OK:', key)
+          PY
