@@ -1,0 +1,15 @@
+name = "ngs-music-auto-api"
+main = "src/index.js"
+compatibility_date = "2026-08-18"
+
+[vars]
+GITHUB_OWNER = "soayngoc02-cpu"
+GITHUB_REPO = "ngs-music-auto-cloud"
+GITHUB_REF = "main"
+ALLOWED_ORIGIN = "https://ngs-music-studio.soayngoc02.chatgpt.site"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "ngs-music-auto"
+
+# Add GITHUB_ACTIONS_TOKEN as a Worker secret, never as a [vars] value.
