@@ -43,16 +43,36 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: 'Invalid aspect_ratio or quality' });
     }
     const [width, height] = PRESETS[aspect][quality];
+
+    const musicMode = String(body.music_mode || (body.audio_key ? 'file' : 'auto')).toLowerCase();
+    if (!['auto', 'file', 'manual'].includes(musicMode)) {
+      return res.status(400).json({ error: 'Invalid music_mode' });
+    }
+    const audioStartSec = Number(body.audio_start_sec || 0);
+    const durationSec = Number(body.duration_sec || 0);
+    if (!Number.isFinite(audioStartSec) || audioStartSec < 0) {
+      return res.status(400).json({ error: 'Invalid audio_start_sec' });
+    }
+    if (!Number.isFinite(durationSec) || durationSec < 0) {
+      return res.status(400).json({ error: 'Invalid duration_sec' });
+    }
+    if (musicMode === 'manual' && durationSec <= 0) {
+      return res.status(400).json({ error: 'Manual trim requires duration_sec > 0' });
+    }
+
     const lyrics = body.lyrics || {};
     const job = {
       job_id: jobId,
       image_key: String(body.image_key),
       audio_key: String(body.audio_key || ''),
       output_key: String(body.output_key || `output/${jobId}.mp4`),
+      music_mode: musicMode,
+      audio_start_sec: audioStartSec,
+      audio_end_sec: Number(body.audio_end_sec || 0),
       aspect_ratio: aspect,
       quality,
       fps: Number(body.fps || 30),
-      duration_sec: Number(body.duration_sec || 0),
+      duration_sec: durationSec,
       lyrics: {
         source: String(lyrics.source || 'auto'),
         key: String(lyrics.key || ''),
