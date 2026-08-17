@@ -1,7 +1,7 @@
 const $ = (id) => document.getElementById(id);
 
 const state = {
-  apiBase: localStorage.getItem('ngs_api_base') || '',
+  apiBase: localStorage.getItem('ngs_api_base') || window.location.origin,
   aspect: '9:16',
   quality: '1080',
   lyricsSource: 'auto',
@@ -33,7 +33,6 @@ function normalizeBase(url) {
 }
 
 async function api(path, options = {}) {
-  if (!state.apiBase) throw new Error('Chưa cấu hình API Base URL');
   const res = await fetch(`${state.apiBase}${path}`, options);
   const contentType = res.headers.get('content-type') || '';
   const body = contentType.includes('application/json') ? await res.json() : await res.text();
@@ -47,24 +46,19 @@ async function api(path, options = {}) {
 function setApiStatus(ok, text) {
   $('apiDot').className = `dot ${ok ? 'online' : 'offline'}`;
   $('apiStatus').textContent = text;
-  $('openSettingsBtn').textContent = ok ? 'API đã kết nối' : 'Kết nối API';
+  $('openSettingsBtn').textContent = ok ? 'Cloud API online' : 'Kiểm tra API';
 }
 
 async function checkApi() {
-  if (!state.apiBase) {
-    setApiStatus(false, 'API chưa kết nối');
-    return false;
-  }
   try {
-    const res = await fetch(`${state.apiBase}/`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'API error');
-    setApiStatus(true, data.service || 'Cloud API online');
-    $('settingsResult').textContent = `Kết nối OK: ${state.apiBase}`;
-    return true;
+    const data = await api('/api/health');
+    const githubText = data.github_actions === 'ready' ? 'GitHub Actions sẵn sàng' : 'Thiếu GitHub token';
+    setApiStatus(true, `R2 OK · ${githubText}`);
+    $('settingsResult').textContent = `API tích hợp OK: ${state.apiBase}\nR2: ${data.r2}\nGitHub Actions: ${data.github_actions}`;
+    return data.github_actions === 'ready';
   } catch (err) {
-    setApiStatus(false, 'Không kết nối được API');
-    $('settingsResult').textContent = `Lỗi: ${err.message}`;
+    setApiStatus(false, 'Cloud API chưa cấu hình');
+    $('settingsResult').textContent = `API chưa sẵn sàng: ${err.message}`;
     return false;
   }
 }
@@ -108,11 +102,23 @@ function previewSelectedImage(file) {
 
 async function uploadFile(kind, file) {
   if (!file) return '';
-  const form = new FormData();
-  form.append('kind', kind);
-  form.append('file', file);
-  const result = await api('/api/render/upload', { method: 'POST', body: form });
-  return result.key;
+  const signed = await api('/api/upload-url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      kind,
+      filename: file.name,
+      content_type: file.type || 'application/octet-stream',
+    }),
+  });
+
+  const upload = await fetch(signed.url, {
+    method: signed.method || 'PUT',
+    headers: signed.headers || { 'Content-Type': file.type || 'application/octet-stream' },
+    body: file,
+  });
+  if (!upload.ok) throw new Error(`Upload R2 thất bại: HTTP ${upload.status}`);
+  return signed.key;
 }
 
 function setProgress(status, message) {
@@ -126,11 +132,16 @@ function setProgress(status, message) {
   $('jobLog').prepend(row);
 }
 
+async function getOutputUrl(jobId) {
+  const result = await api(`/api/output-url?id=${encodeURIComponent(jobId)}`);
+  return result.url;
+}
+
 async function renderVideo() {
   const jobId = $('jobId').value.trim();
   if (!jobId) return toast('Nhập mã nội dung');
   if (!state.imageFile && !state.uploadedImageKey) return toast('Chọn hình trước');
-  if (!(await checkApi())) return toast('Cần kết nối Cloud API trước');
+  if (!(await checkApi())) return toast('Cloud API chưa đủ cấu hình để render');
 
   $('renderBtn').disabled = true;
   $('renderBtn').textContent = 'ĐANG GỬI...';
@@ -138,7 +149,7 @@ async function renderVideo() {
   $('jobActions').hidden = true;
 
   try {
-    setProgress('pending', 'Đang upload asset');
+    setProgress('pending', 'Đang upload asset trực tiếp vào R2');
     if (state.imageFile) {
       state.uploadedImageKey = await uploadFile('image', state.imageFile);
       setProgress('pending', `Đã upload hình: ${state.uploadedImageKey}`);
@@ -170,13 +181,13 @@ async function renderVideo() {
     };
 
     setProgress('pending', 'Đang tạo Render Job');
-    const created = await api('/api/render/jobs', {
+    const created = await api('/api/jobs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
     state.currentJobId = jobId;
-    setProgress('processing', `Job ${jobId} đã gửi lên cloud`);
+    setProgress('processing', `Job ${jobId} đã gửi lên GitHub Actions`);
     toast(`Đã tạo ${created.job_key}`);
     startPolling(jobId);
   } catch (err) {
@@ -194,12 +205,12 @@ function startPolling(jobId) {
   state.pollTimer = setInterval(async () => {
     ticks += 1;
     try {
-      const result = await api(`/api/render/jobs/${encodeURIComponent(jobId)}`);
+      const result = await api(`/api/job-status?id=${encodeURIComponent(jobId)}`);
       const status = result.status;
       if (status === 'done') {
         clearInterval(state.pollTimer);
         setProgress('done', 'Render hoàn tất');
-        const outputUrl = `${state.apiBase}/api/render/output/${encodeURIComponent(jobId)}`;
+        const outputUrl = await getOutputUrl(jobId);
         $('watchVideoBtn').href = outputUrl;
         $('jobActions').hidden = false;
         toast('Video đã render xong');
@@ -220,7 +231,7 @@ async function loadLibrary(kind) {
   const el = $(map[kind]);
   el.textContent = 'Đang tải...';
   try {
-    const result = await api(`/api/render/library?kind=${encodeURIComponent(kind)}`);
+    const result = await api(`/api/library?kind=${encodeURIComponent(kind)}`);
     if (!result.objects.length) {
       el.textContent = 'Kho đang trống.';
       return;
@@ -245,7 +256,7 @@ async function checkQueueJob() {
   const id = $('queueJobId').value.trim();
   if (!id) return;
   try {
-    const result = await api(`/api/render/jobs/${encodeURIComponent(id)}`);
+    const result = await api(`/api/job-status?id=${encodeURIComponent(id)}`);
     $('queueResult').textContent = JSON.stringify(result, null, 2);
   } catch (err) {
     $('queueResult').textContent = `Lỗi: ${err.message}`;
@@ -303,26 +314,29 @@ function wireUi() {
   }));
 
   $('renderBtn').addEventListener('click', renderVideo);
-
   document.querySelectorAll('[data-load-library]').forEach((btn) => btn.addEventListener('click', () => loadLibrary(btn.dataset.loadLibrary)));
   $('checkJobBtn').addEventListener('click', checkQueueJob);
-  $('openOutputBtn').addEventListener('click', () => {
+  $('openOutputBtn').addEventListener('click', async () => {
     const id = $('outputJobId').value.trim();
-    if (!id || !state.apiBase) return toast('Nhập mã job và kết nối API');
-    window.open(`${state.apiBase}/api/render/output/${encodeURIComponent(id)}`, '_blank', 'noopener');
+    if (!id) return toast('Nhập mã job');
+    try {
+      const url = await getOutputUrl(id);
+      window.open(url, '_blank', 'noopener');
+    } catch (err) {
+      toast(err.message);
+    }
   });
 
   $('saveApiBtn').addEventListener('click', async () => {
-    state.apiBase = normalizeBase($('apiBaseInput').value);
+    state.apiBase = normalizeBase($('apiBaseInput').value) || window.location.origin;
     localStorage.setItem('ngs_api_base', state.apiBase);
     await checkApi();
   });
-  $('clearApiBtn').addEventListener('click', () => {
-    state.apiBase = '';
+  $('clearApiBtn').addEventListener('click', async () => {
+    state.apiBase = window.location.origin;
     localStorage.removeItem('ngs_api_base');
-    $('apiBaseInput').value = '';
-    $('settingsResult').textContent = 'Đã xóa cấu hình API.';
-    setApiStatus(false, 'API chưa kết nối');
+    $('apiBaseInput').value = state.apiBase;
+    await checkApi();
   });
 }
 
