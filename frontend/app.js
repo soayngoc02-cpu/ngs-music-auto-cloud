@@ -1,3 +1,5 @@
+import { AudioTrimmer, formatAudioTime } from './audio-trim.js';
+
 const $ = (id) => document.getElementById(id);
 
 const state = {
@@ -5,6 +7,8 @@ const state = {
   aspect: '9:16',
   quality: '1080',
   lyricsSource: 'auto',
+  musicMode: 'auto',
+  trimSelection: null,
   imageFile: null,
   musicFile: null,
   lyricsFile: null,
@@ -63,12 +67,112 @@ async function checkApi() {
   }
 }
 
+function installAudioTrimUi() {
+  if ($('audioTrimCard')) return;
+
+  const trimButton = document.createElement('button');
+  trimButton.type = 'button';
+  trimButton.className = 'text-btn trim-open-btn';
+  trimButton.id = 'openTrimBtn';
+  trimButton.textContent = '✂ Cắt tay đoạn nhạc';
+  trimButton.hidden = true;
+  $('musicDrop').append(trimButton);
+
+  const card = document.createElement('section');
+  card.className = 'card audio-trim-card';
+  card.id = 'audioTrimCard';
+  card.hidden = true;
+  card.innerHTML = `
+    <div class="card-head audio-trim-head">
+      <div>
+        <p class="eyebrow">MANUAL AUDIO CUT</p>
+        <h2>Cắt tay đoạn nhạc</h2>
+        <p class="muted trim-status" id="trimStatus">Chọn file nhạc để mở waveform</p>
+      </div>
+      <span class="pill" id="trimDurationLabel">0.0 giây</span>
+    </div>
+
+    <div class="waveform-stage" id="waveformStage" aria-label="Waveform và vùng nhạc được chọn">
+      <canvas id="waveformCanvas"></canvas>
+      <div class="waveform-selection" id="waveformSelection"></div>
+      <button class="trim-handle trim-handle-start" id="trimStartHandle" type="button" aria-label="Điểm cắt đầu"><span></span></button>
+      <button class="trim-handle trim-handle-end" id="trimEndHandle" type="button" aria-label="Điểm cắt cuối"><span></span></button>
+    </div>
+
+    <div class="trim-time-row">
+      <strong><span class="trim-dot start"></span> Bắt đầu: <span id="trimStartLabel">0:00.0</span></strong>
+      <strong>Kết thúc: <span id="trimEndLabel">0:00.0</span> <span class="trim-dot end"></span></strong>
+    </div>
+
+    <div class="trim-controls">
+      <button class="secondary trim-play" id="trimPlayBtn" type="button">▶ Nghe đoạn chọn</button>
+      <div class="trim-number-grid">
+        <label>Điểm đầu (giây)<input id="trimStartInput" type="number" min="0" step="0.1" value="0.0" /></label>
+        <label>Điểm cuối (giây)<input id="trimEndInput" type="number" min="0" step="0.1" value="0.0" /></label>
+      </div>
+      <div class="trim-actions">
+        <button class="ghost" id="trimCancelBtn" type="button">Dùng từ đầu</button>
+        <button class="primary trim-use" id="trimUseBtn" type="button">Dùng đoạn này</button>
+      </div>
+    </div>
+    <audio id="trimAudioPlayer" preload="metadata"></audio>
+  `;
+
+  const firstGrid = document.querySelector('#view-render > .grid.two');
+  firstGrid.insertAdjacentElement('afterend', card);
+}
+
+let audioTrimmer;
+
+function setupAudioTrimmer() {
+  audioTrimmer = new AudioTrimmer({
+    onChange: (selection) => {
+      state.trimSelection = selection;
+      updateFileUi();
+      updateOutputSummary();
+    },
+    onUse: (selection) => {
+      state.musicMode = 'manual';
+      state.trimSelection = selection;
+      updateMusicModeUi();
+      updateFileUi();
+      updateOutputSummary();
+      toast(`Đã chọn đoạn ${formatAudioTime(selection.start)} – ${formatAudioTime(selection.end)}`);
+    },
+    onCancel: () => {
+      state.musicMode = state.musicFile ? 'file' : 'auto';
+      state.trimSelection = audioTrimmer.getSelection();
+      audioTrimmer.hide();
+      updateMusicModeUi();
+      updateFileUi();
+      updateOutputSummary();
+      toast('Đã tắt cắt tay');
+    },
+  });
+}
+
+function updateMusicModeUi() {
+  const manual = state.musicMode === 'manual';
+  $('durationSelect').disabled = manual;
+  $('durationSelect').title = manual ? 'Thời lượng được lấy theo điểm cắt đầu và cuối' : '';
+  $('openTrimBtn').hidden = !state.musicFile;
+  if (manual && state.musicFile) audioTrimmer.open();
+}
+
 function updateOutputSummary() {
   const [w, h] = PRESETS[state.aspect][state.quality];
   $('resolutionBadge').textContent = `${w} × ${h}`;
   const qLabel = state.quality === '1080' ? '1080p' : state.quality.toUpperCase();
-  const duration = Number($('durationSelect').value);
-  const durationText = duration ? `${duration} giây` : 'Toàn bài';
+
+  let durationText;
+  if (state.musicMode === 'manual' && state.trimSelection?.duration > 0) {
+    const selection = state.trimSelection;
+    durationText = `Cắt ${formatAudioTime(selection.start)}–${formatAudioTime(selection.end)} · ${selection.duration.toFixed(1)}s`;
+  } else {
+    const duration = Number($('durationSelect').value);
+    durationText = duration ? `${duration} giây` : 'Toàn bài';
+  }
+
   $('renderSummary').textContent = `${state.aspect} · ${qLabel} · ${durationText} · ${$('fpsSelect').value} FPS`;
   $('previewFrame').className = `preview-frame ratio-${state.aspect.replace(':', '-')}${state.imageFile ? ' has-image' : ''}`;
 }
@@ -88,7 +192,15 @@ function navigate(view) {
 
 function updateFileUi() {
   $('imageName').textContent = state.imageFile ? state.imageFile.name : 'Chưa chọn hình';
-  $('musicName').textContent = state.musicFile ? state.musicFile.name : 'Auto Music Selector';
+
+  if (!state.musicFile) {
+    $('musicName').textContent = 'Auto Music Selector';
+  } else if (state.musicMode === 'manual' && state.trimSelection?.confirmed) {
+    $('musicName').textContent = `${state.musicFile.name} · ${formatAudioTime(state.trimSelection.start)}–${formatAudioTime(state.trimSelection.end)}`;
+  } else {
+    $('musicName').textContent = state.musicFile.name;
+  }
+
   $('lyricsName').textContent = state.lyricsFile ? state.lyricsFile.name : 'Chưa chọn file';
   $('renderHint').textContent = state.imageFile ? 'Sẵn sàng tạo job' : 'Chọn hình để bắt đầu';
 }
@@ -141,6 +253,15 @@ async function renderVideo() {
   const jobId = $('jobId').value.trim();
   if (!jobId) return toast('Nhập mã nội dung');
   if (!state.imageFile && !state.uploadedImageKey) return toast('Chọn hình trước');
+
+  let trim = null;
+  if (state.musicMode === 'manual') {
+    if (!state.musicFile) return toast('Chọn file nhạc trước khi cắt tay');
+    trim = audioTrimmer.getSelection();
+    if (!trim.confirmed) return toast('Bấm “Dùng đoạn này” để xác nhận điểm cắt');
+    if (trim.duration < 0.5) return toast('Đoạn nhạc phải dài ít nhất 0.5 giây');
+  }
+
   if (!(await checkApi())) return toast('Cloud API chưa đủ cấu hình để render');
 
   $('renderBtn').disabled = true;
@@ -163,14 +284,20 @@ async function renderVideo() {
       setProgress('pending', `Đã upload lyrics: ${state.uploadedLyricsKey}`);
     }
 
+    const durationSec = trim ? trim.duration : Number($('durationSelect').value);
+    const audioStartSec = trim ? trim.start : 0;
+
     const payload = {
       job_id: jobId,
       image_key: state.uploadedImageKey,
       audio_key: state.uploadedMusicKey,
+      music_mode: state.musicMode,
+      audio_start_sec: audioStartSec,
+      audio_end_sec: trim ? trim.end : 0,
       aspect_ratio: state.aspect,
       quality: state.quality,
       fps: Number($('fpsSelect').value),
-      duration_sec: Number($('durationSelect').value),
+      duration_sec: durationSec,
       lyrics: {
         source: state.lyricsSource,
         key: state.uploadedLyricsKey,
@@ -188,6 +315,7 @@ async function renderVideo() {
     });
     state.currentJobId = jobId;
     setProgress('processing', `Job ${jobId} đã gửi lên GitHub Actions`);
+    if (trim) setProgress('processing', `Đoạn cắt: ${formatAudioTime(trim.start)} – ${formatAudioTime(trim.end)} (${trim.duration.toFixed(1)}s)`);
     toast(`Đã tạo ${created.job_key}`);
     startPolling(jobId);
   } catch (err) {
@@ -276,21 +404,55 @@ function wireUi() {
     updateFileUi();
     previewSelectedImage(state.imageFile);
   });
-  $('musicInput').addEventListener('change', (e) => {
+
+  $('musicInput').addEventListener('change', async (e) => {
     state.musicFile = e.target.files[0] || null;
     state.uploadedMusicKey = '';
+    state.musicMode = state.musicFile ? 'file' : 'auto';
+    state.trimSelection = null;
     updateFileUi();
+    updateMusicModeUi();
+
+    if (state.musicFile) {
+      try {
+        const preferred = Number($('durationSelect').value) || 30;
+        await audioTrimmer.loadFile(state.musicFile, preferred);
+        state.trimSelection = audioTrimmer.getSelection();
+        updateOutputSummary();
+      } catch (err) {
+        toast(err.message);
+      }
+    } else {
+      audioTrimmer.clear();
+    }
   });
+
+  $('openTrimBtn').addEventListener('click', () => {
+    if (!state.musicFile) return toast('Chọn file nhạc trước');
+    state.musicMode = 'manual';
+    state.trimSelection = audioTrimmer.getSelection();
+    audioTrimmer.open();
+    updateMusicModeUi();
+    updateFileUi();
+    updateOutputSummary();
+  });
+
   $('lyricsInput').addEventListener('change', (e) => {
     state.lyricsFile = e.target.files[0] || null;
     state.uploadedLyricsKey = '';
     updateFileUi();
   });
+
   $('clearMusicBtn').addEventListener('click', () => {
     state.musicFile = null;
+    state.musicMode = 'auto';
+    state.trimSelection = null;
     state.uploadedMusicKey = '';
     $('musicInput').value = '';
+    audioTrimmer.clear();
+    updateMusicModeUi();
     updateFileUi();
+    updateOutputSummary();
   });
 
   $('aspectChoices').querySelectorAll('button').forEach((btn) => btn.addEventListener('click', () => {
@@ -340,8 +502,11 @@ function wireUi() {
   });
 }
 
+installAudioTrimUi();
+setupAudioTrimmer();
 wireUi();
 $('apiBaseInput').value = state.apiBase;
 updateFileUi();
+updateMusicModeUi();
 updateOutputSummary();
 checkApi();
