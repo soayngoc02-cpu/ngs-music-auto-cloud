@@ -64,6 +64,9 @@ def main() -> int:
             print('JOB:', job.job_id)
             print('IMAGE:', job.image_key)
             print('AUDIO:', audio_key)
+            print('MUSIC MODE:', job.music_mode)
+            print('AUDIO START:', job.audio_start_sec)
+            print('DURATION:', job.duration_sec)
             print('PRESET:', job.aspect_ratio, job.quality, f'{job.width}x{job.height}', f'{job.fps}fps')
 
             download(job.image_key, str(local_image))
@@ -108,6 +111,7 @@ def main() -> int:
                 height=job.height,
                 fps=job.fps,
                 duration_sec=job.duration_sec if job.duration_sec > 0 else None,
+                audio_start_sec=job.audio_start_sec,
             )
             upload(str(local_output), job.output_key)
 
@@ -116,6 +120,8 @@ def main() -> int:
                 'job_id': job.job_id,
                 'status': 'done',
                 'selected_audio_key': audio_key,
+                'resolved_audio_start_sec': job.audio_start_sec,
+                'resolved_duration_sec': job.duration_sec,
                 'resolved_width': job.width,
                 'resolved_height': job.height,
                 'resolved_fps': job.fps,
