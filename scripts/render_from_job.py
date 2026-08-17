@@ -2,6 +2,7 @@ import json
 import sys
 import tempfile
 import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -62,6 +63,7 @@ def main() -> int:
             local_output = tmpdir / 'output.mp4'
 
             print('JOB:', job.job_id)
+            print('RENDER ID:', raw.get('render_id', 'legacy'))
             print('IMAGE:', job.image_key)
             print('AUDIO:', audio_key)
             print('MUSIC MODE:', job.music_mode)
@@ -115,10 +117,14 @@ def main() -> int:
             )
             upload(str(local_output), job.output_key)
 
+            completed_at = datetime.now(timezone.utc).isoformat()
+            render_id = str(raw.get('render_id') or f'{job.job_id}-legacy')
             done = {
                 **raw,
                 'job_id': job.job_id,
+                'render_id': render_id,
                 'status': 'done',
+                'completed_at': completed_at,
                 'selected_audio_key': audio_key,
                 'resolved_audio_start_sec': job.audio_start_sec,
                 'resolved_duration_sec': job.duration_sec,
@@ -131,10 +137,18 @@ def main() -> int:
             }
             done_file = tmpdir / 'done.json'
             write_json(done_file, done)
+
+            # Latest pointer for the content code, used by status polling.
             done_key = f'jobs/done/{job.job_id}.json'
             upload(str(done_file), done_key)
+
+            # Immutable render history for the visual completed-video manager.
+            history_key = f'jobs/history/{render_id}.json'
+            upload(str(done_file), history_key)
+
             print('RENDER JOB OK:', job.output_key)
             print('DONE STATUS:', done_key)
+            print('HISTORY:', history_key)
             return 0
 
         except Exception as exc:
