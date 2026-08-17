@@ -26,7 +26,7 @@
       </nav>
       <div class="sidebar-status">
         <span id="apiDot" class="dot offline"></span>
-        <span id="apiStatus">API chưa kết nối</span>
+        <span id="apiStatus">Cloud API đang kiểm tra</span>
       </div>
     </aside>
 
@@ -38,7 +38,7 @@
         </div>
         <div class="top-actions">
           <button class="ghost" id="refreshBtn">Làm mới</button>
-          <button class="primary" id="openSettingsBtn">Kết nối API</button>
+          <button class="primary" id="openSettingsBtn">Kiểm tra API</button>
         </div>
       </header>
 
@@ -205,11 +205,11 @@
 
       <section class="view" id="view-settings">
         <section class="card narrow">
-          <div class="card-head"><div><p class="eyebrow">CONNECTION</p><h2>Kết nối Cloud API</h2></div></div>
-          <label>API Base URL<input id="apiBaseInput" placeholder="https://ngs-music-auto-api....workers.dev" /></label>
-          <p class="muted">URL này chỉ là địa chỉ Worker public. Không nhập R2 secret hoặc GitHub token vào đây.</p>
-          <div class="inline-row"><button class="primary" id="saveApiBtn">Lưu & kiểm tra</button><button class="ghost" id="clearApiBtn">Xóa cấu hình</button></div>
-          <div id="settingsResult" class="status-box">Chưa cấu hình API.</div>
+          <div class="card-head"><div><p class="eyebrow">CONNECTION</p><h2>Cloud API tích hợp</h2></div></div>
+          <label>API Base URL<input id="apiBaseInput" /></label>
+          <p class="muted">Mặc định dùng chính domain NGS Music Studio. Không nhập secret vào giao diện này.</p>
+          <div class="inline-row"><button class="primary" id="saveApiBtn">Lưu & kiểm tra</button><button class="ghost" id="clearApiBtn">Dùng mặc định</button></div>
+          <div id="settingsResult" class="status-box">Đang kiểm tra API tích hợp...</div>
         </section>
       </section>
     </main>
