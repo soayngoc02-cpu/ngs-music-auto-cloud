@@ -9,6 +9,7 @@ async function readDone(id) {
 }
 
 module.exports = async function handler(req, res) {
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
   try {
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
     const id = safeName(req.query.id || '').replace(/\.[^.]+$/, '');
@@ -23,8 +24,13 @@ module.exports = async function handler(req, res) {
       throw err;
     }
     const key = done.output_key || `output/${id}.mp4`;
-    const url = await getSignedUrl(client(), new GetObjectCommand({ Bucket: bucket(), Key: key }), { expiresIn: 3600 });
-    return res.status(200).json({ ok: true, key, url, expires_in: 3600 });
+    const command = new GetObjectCommand({
+      Bucket: bucket(),
+      Key: key,
+      ResponseCacheControl: 'no-store, max-age=0',
+    });
+    const url = await getSignedUrl(client(), command, { expiresIn: 3600 });
+    return res.status(200).json({ ok: true, key, render_id: done.render_id || id, url, expires_in: 3600 });
   } catch (err) {
     return res.status(500).json({ error: err.message || String(err) });
   }
