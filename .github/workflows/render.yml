@@ -1,0 +1,64 @@
+name: Render Video
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_key:
+        description: 'R2 image key, e.g. images/c001.jpg'
+        required: true
+      audio_key:
+        description: 'Optional R2 audio key. Leave blank to let Music Selector choose from DNA.'
+        required: false
+        default: ''
+      output_key:
+        description: 'R2 output key, e.g. output/c001.mp4'
+        required: true
+        default: 'output/test.mp4'
+      width:
+        description: 'Video width'
+        required: true
+        default: '1080'
+      height:
+        description: 'Video height'
+        required: true
+        default: '1920'
+      fps:
+        description: 'Frames per second'
+        required: true
+        default: '30'
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+      - name: Render on cloud runner
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          IMAGE_KEY: ${{ inputs.image_key }}
+          AUDIO_KEY: ${{ inputs.audio_key }}
+          OUTPUT_KEY: ${{ inputs.output_key }}
+          WIDTH: ${{ inputs.width }}
+          HEIGHT: ${{ inputs.height }}
+          FPS: ${{ inputs.fps }}
+        run: |
+          python scripts/render_job.py \
+            --image-key "$IMAGE_KEY" \
+            --audio-key "$AUDIO_KEY" \
+            --output-key "$OUTPUT_KEY" \
+            --width "$WIDTH" \
+            --height "$HEIGHT" \
+            --fps "$FPS"
