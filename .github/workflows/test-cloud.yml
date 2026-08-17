@@ -4,6 +4,12 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths:
+      - '.github/workflows/test-cloud.yml'
+      - 'scripts/healthcheck.py'
+      - 'scripts/r2_roundtrip.py'
+      - 'app/r2.py'
+      - 'requirements.txt'
 
 jobs:
   healthcheck:
