@@ -19,37 +19,45 @@ jobs:
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      HF_HOME: ~/.cache/huggingface
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            requirements-smart.txt
 
       - name: Install FFmpeg and subtitle fonts
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg fonts-dejavu-core fontconfig
 
-      - name: Install core Python dependencies
-        run: pip install -r requirements.txt
-
-      - name: Detect smart subtitle requirement
-        id: features
-        run: echo "smart_sub=$(python scripts/job_features.py \"${{ inputs.job_key }}\")" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Whisper model
-        if: steps.features.outputs.smart_sub == 'true'
+      - name: Cache Whisper models
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
-          key: ngs-faster-whisper-small-v1
+          key: ngs-faster-whisper-models-v1
           restore-keys: |
-            ngs-faster-whisper-
+            ngs-faster-whisper-models-
 
-      - name: Install smart subtitle dependencies
-        if: steps.features.outputs.smart_sub == 'true'
-        run: pip install -r requirements-smart.txt
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-smart.txt
+
+      - name: Verify Smart Sync dependency
+        run: |
+          python - <<'PY'
+          import faster_whisper
+          from faster_whisper import WhisperModel
+          print('faster-whisper OK:', getattr(faster_whisper, '__version__', 'unknown'))
+          print('WhisperModel import OK:', WhisperModel.__name__)
+          PY
 
       - name: Render job from R2
         run: python scripts/render_from_job.py "${{ inputs.job_key }}"
