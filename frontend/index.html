@@ -42,7 +42,7 @@
             <label>Mã nội dung<input id="jobId" type="text" value="C001" autocomplete="off" /></label>
             <div class="upload-grid">
               <div class="upload-box" id="imageDrop">
-                <span class="upload-label">Hình ảnh</span><strong id="imageName">Chưa chọn hình</strong><small>JPG, PNG, WEBP</small>
+                <span class="upload-label">Hình / Video</span><strong id="imageName">Chưa chọn hình / video</strong><small>Nhiều ảnh, MP4, MOV, WEBM, MKV</small>
                 <input id="imageInput" type="file" accept="image/jpeg,image/png,image/webp" />
                 <button class="secondary" data-pick="imageInput">Chọn hình</button>
               </div>
@@ -59,7 +59,7 @@
             <div class="card-head"><div><p class="eyebrow">PREVIEW</p><h2>Xem trước khung hình</h2></div></div>
             <div id="previewFrame" class="preview-frame ratio-9-16">
               <img id="previewImage" alt="Preview" />
-              <div class="preview-empty" id="previewEmpty">Ảnh preview</div>
+              <div class="preview-empty" id="previewEmpty">Visual preview</div>
               <div class="preview-caption" id="previewCaption">NGS MUSIC</div>
             </div>
           </section>
@@ -87,7 +87,7 @@
           </div>
         </section>
 
-        <section class="render-bar card"><div><strong id="renderSummary">9:16 · 1080p · 30 giây · 30 FPS</strong><span id="renderHint">Chọn hình để bắt đầu</span></div><button class="primary big" id="renderBtn">RENDER VIDEO</button></section>
+        <section class="render-bar card"><div><strong id="renderSummary">9:16 · 1080p · 30 giây · 30 FPS</strong><span id="renderHint">Chọn visual để bắt đầu</span></div><button class="primary big" id="renderBtn">RENDER VIDEO</button></section>
 
         <section class="card" id="jobProgressCard" hidden>
           <div class="card-head"><div><p class="eyebrow">STATUS</p><h2 id="jobProgressTitle">Đang xử lý</h2></div><span class="pill" id="jobStatusPill">pending</span></div>
@@ -105,12 +105,8 @@
       </section>
 
       <section class="view" id="view-queue"><section class="card"><div class="card-head"><h2>Theo dõi job</h2></div><label>Mã job<input id="queueJobId" placeholder="C001" /></label><button class="primary" id="checkJobBtn">Kiểm tra trạng thái</button><pre id="queueResult" class="code-box">Chưa kiểm tra.</pre></section></section>
-
       <section class="view" id="view-outputs"><section class="card"><div class="card-head"><h2>Video hoàn thành</h2></div><p class="muted">Đang tải trình quản lý video...</p><div hidden><input id="outputJobId" /><button id="openOutputBtn" type="button"></button></div></section></section>
-
-      <section class="view" id="view-settings">
-        <section class="card narrow"><div class="card-head"><div><p class="eyebrow">CONNECTION</p><h2>Cloud API tích hợp</h2></div></div><label>API Base URL<input id="apiBaseInput" /></label><p class="muted">Mặc định dùng chính domain NGS Music Studio. Không nhập secret vào giao diện này.</p><div class="inline-row"><button class="primary" id="saveApiBtn">Lưu & kiểm tra</button><button class="ghost" id="clearApiBtn">Dùng mặc định</button></div><div id="settingsResult" class="status-box">Đang kiểm tra API tích hợp...</div></section>
-      </section>
+      <section class="view" id="view-settings"><section class="card narrow"><div class="card-head"><div><p class="eyebrow">CONNECTION</p><h2>Cloud API tích hợp</h2></div></div><label>API Base URL<input id="apiBaseInput" /></label><p class="muted">Mặc định dùng chính domain NGS Music Studio. Không nhập secret vào giao diện này.</p><div class="inline-row"><button class="primary" id="saveApiBtn">Lưu & kiểm tra</button><button class="ghost" id="clearApiBtn">Dùng mặc định</button></div><div id="settingsResult" class="status-box">Đang kiểm tra API tích hợp...</div></section></section>
     </main>
   </div>
   <div id="toast" class="toast"></div>
@@ -119,5 +115,6 @@
   <script type="module" src="./image-picker.js"></script>
   <script type="module" src="./effects-panel.js"></script>
   <script type="module" src="./studio-manager.js"></script>
+  <script type="module" src="./source-video-library.js"></script>
 </body>
 </html>
