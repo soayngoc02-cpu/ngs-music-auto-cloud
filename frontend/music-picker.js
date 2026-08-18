@@ -1,6 +1,6 @@
 import { AudioTrimmer, formatAudioTime } from './audio-trim.js';
 
-const nativeFetch = window.fetch.bind(window);
+const previousFetch = window.fetch.bind(window);
 const API_BASE = () => (localStorage.getItem('ngs_api_base') || window.location.origin).replace(/\/+$/, '');
 const $ = (id) => document.getElementById(id);
 
@@ -14,6 +14,9 @@ const musicState = {
   localUploadPromise: null,
   cloudItems: [],
   cloudBlobFile: null,
+  previewKey: '',
+  previewButton: null,
+  urlCache: new Map(),
 };
 
 let cloudPreviewAudio;
@@ -32,14 +35,14 @@ function formatBytes(bytes) {
 
 async function apiGet(path) {
   const joiner = path.includes('?') ? '&' : '?';
-  const res = await nativeFetch(`${API_BASE()}${path}${joiner}_=${Date.now()}`, { cache: 'no-store' });
+  const res = await previousFetch(`${API_BASE()}${path}${joiner}_=${Date.now()}`, { cache: 'no-store' });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
   return body;
 }
 
 async function apiPost(path, payload) {
-  const res = await nativeFetch(`${API_BASE()}${path}`, {
+  const res = await previousFetch(`${API_BASE()}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -63,6 +66,76 @@ function setSourceActive(source) {
   });
 }
 
+function resetPreviewButton() {
+  if (musicState.previewButton) musicState.previewButton.textContent = '▶ Nghe';
+  musicState.previewButton = null;
+}
+
+function stopPreview({ rewind = false, clearKey = false } = {}) {
+  if (cloudPreviewAudio && !cloudPreviewAudio.paused) cloudPreviewAudio.pause();
+  if (cloudPreviewAudio && rewind) {
+    try { cloudPreviewAudio.currentTime = 0; } catch (_) {}
+  }
+  resetPreviewButton();
+  if (clearKey) musicState.previewKey = '';
+}
+
+function ensurePreviewAudio() {
+  if (cloudPreviewAudio) return cloudPreviewAudio;
+  cloudPreviewAudio = new Audio();
+  cloudPreviewAudio.preload = 'metadata';
+  cloudPreviewAudio.addEventListener('pause', () => resetPreviewButton());
+  cloudPreviewAudio.addEventListener('ended', () => {
+    resetPreviewButton();
+    musicState.previewKey = '';
+    try { cloudPreviewAudio.currentTime = 0; } catch (_) {}
+  });
+  cloudPreviewAudio.addEventListener('error', () => {
+    resetPreviewButton();
+    musicState.previewKey = '';
+  });
+  return cloudPreviewAudio;
+}
+
+async function signedMediaUrl(key) {
+  const cached = musicState.urlCache.get(key);
+  if (cached && Date.now() - cached.createdAt < 45 * 60 * 1000) return cached.url;
+  const result = await apiGet(`/api/media-url?key=${encodeURIComponent(key)}`);
+  musicState.urlCache.set(key, { url: result.url, createdAt: Date.now() });
+  return result.url;
+}
+
+async function playCloudItem(item, button) {
+  try {
+    const audio = ensurePreviewAudio();
+
+    // The same R2 key is the identity. Presigned URLs change on every request,
+    // so comparing audio.src to a newly signed URL makes Play impossible to toggle.
+    if (musicState.previewKey === item.key) {
+      if (!audio.paused) {
+        audio.pause();
+        return;
+      }
+      musicState.previewButton = button;
+      await audio.play();
+      button.textContent = '❚❚ Dừng';
+      return;
+    }
+
+    stopPreview({ rewind: true, clearKey: true });
+    const url = await signedMediaUrl(item.key);
+    audio.src = url;
+    audio.load();
+    musicState.previewKey = item.key;
+    musicState.previewButton = button;
+    await audio.play();
+    button.textContent = '❚❚ Dừng';
+  } catch (err) {
+    stopPreview({ rewind: true, clearKey: true });
+    toast(`Không phát được nhạc: ${err.message}`);
+  }
+}
+
 function setMusicName() {
   const target = $('musicName');
   if (!target || !musicState.cloudKey) return;
@@ -75,6 +148,7 @@ function setMusicName() {
 }
 
 function clearCloudSelection({ keepPanel = true } = {}) {
+  stopPreview({ rewind: true, clearKey: true });
   musicState.cloudKey = '';
   musicState.cloudName = '';
   musicState.cloudUrl = '';
@@ -94,31 +168,8 @@ function clearCloudSelection({ keepPanel = true } = {}) {
   if (duration) duration.disabled = false;
 }
 
-async function signedMediaUrl(key) {
-  const result = await apiGet(`/api/media-url?key=${encodeURIComponent(key)}`);
-  return result.url;
-}
-
-async function playCloudItem(item, button) {
-  try {
-    const url = await signedMediaUrl(item.key);
-    if (!cloudPreviewAudio) cloudPreviewAudio = new Audio();
-    if (cloudPreviewAudio.src !== url) cloudPreviewAudio.src = url;
-    if (!cloudPreviewAudio.paused) {
-      cloudPreviewAudio.pause();
-      button.textContent = '▶ Nghe';
-      return;
-    }
-    await cloudPreviewAudio.play();
-    button.textContent = '❚❚ Dừng';
-    cloudPreviewAudio.onpause = () => { button.textContent = '▶ Nghe'; };
-    cloudPreviewAudio.onended = () => { button.textContent = '▶ Nghe'; };
-  } catch (err) {
-    toast(`Không phát được nhạc: ${err.message}`);
-  }
-}
-
 async function selectCloudItem(item) {
+  stopPreview({ rewind: true, clearKey: true });
   const input = $('musicInput');
   if (input) {
     input.value = '';
@@ -145,11 +196,12 @@ async function selectCloudItem(item) {
 async function openCloudTrim() {
   if (!musicState.cloudKey) return toast('Chọn một bài trong Kho Cloud trước');
   try {
+    stopPreview({ rewind: true });
     $('cloudTrimStatus').textContent = 'Đang tải nhạc từ Cloud để tạo waveform…';
     $('cloudAudioTrimCard').classList.add('show');
     if (!musicState.cloudUrl) musicState.cloudUrl = await signedMediaUrl(musicState.cloudKey);
     if (!musicState.cloudBlobFile) {
-      const response = await nativeFetch(musicState.cloudUrl, { cache: 'no-store' });
+      const response = await previousFetch(musicState.cloudUrl, { cache: 'no-store' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const blob = await response.blob();
       musicState.cloudBlobFile = new File([blob], musicState.cloudName, { type: blob.type || 'audio/mpeg' });
@@ -172,7 +224,7 @@ async function uploadLocalMusic(file) {
       filename: file.name,
       content_type: file.type || 'application/octet-stream',
     });
-    const upload = await nativeFetch(signed.url, {
+    const upload = await previousFetch(signed.url, {
       method: signed.method || 'PUT',
       headers: signed.headers || { 'Content-Type': file.type || 'application/octet-stream' },
       body: file,
@@ -188,6 +240,7 @@ async function uploadLocalMusic(file) {
     if (status) status.textContent = '✓ Đã lưu vào Kho Cloud';
     window.dispatchEvent(new CustomEvent('ngs:library-changed', { detail: { kind: 'music', key: signed.key } }));
   } catch (err) {
+    musicState.localUploadedKey = '';
     if (status) status.textContent = `Upload lỗi: ${err.message}`;
   }
 }
@@ -244,56 +297,29 @@ function installCloudTrimCard() {
   card.className = 'card audio-trim-card cloud-trim-card';
   card.innerHTML = `
     <div class="card-head audio-trim-head">
-      <div>
-        <p class="eyebrow">CLOUD AUDIO CUT</p>
-        <h2>Cắt tay nhạc trong Cloud</h2>
-        <p class="muted trim-status" id="cloudTrimStatus">Chọn bài Cloud rồi mở cắt tay</p>
-      </div>
+      <div><p class="eyebrow">CLOUD AUDIO CUT</p><h2>Cắt tay nhạc trong Cloud</h2><p class="muted trim-status" id="cloudTrimStatus">Chọn bài Cloud rồi mở cắt tay</p></div>
       <span class="pill" id="cloudTrimDurationLabel">0.0 giây</span>
     </div>
     <div class="waveform-stage" id="cloudWaveformStage">
-      <canvas id="cloudWaveformCanvas"></canvas>
-      <div class="waveform-selection" id="cloudWaveformSelection"></div>
+      <canvas id="cloudWaveformCanvas"></canvas><div class="waveform-selection" id="cloudWaveformSelection"></div>
       <button class="trim-handle trim-handle-start" id="cloudTrimStartHandle" type="button"><span></span></button>
       <button class="trim-handle trim-handle-end" id="cloudTrimEndHandle" type="button"><span></span></button>
     </div>
-    <div class="trim-time-row">
-      <strong><span class="trim-dot start"></span> Bắt đầu: <span id="cloudTrimStartLabel">0:00.0</span></strong>
-      <strong>Kết thúc: <span id="cloudTrimEndLabel">0:00.0</span> <span class="trim-dot end"></span></strong>
-    </div>
+    <div class="trim-time-row"><strong><span class="trim-dot start"></span> Bắt đầu: <span id="cloudTrimStartLabel">0:00.0</span></strong><strong>Kết thúc: <span id="cloudTrimEndLabel">0:00.0</span> <span class="trim-dot end"></span></strong></div>
     <div class="trim-controls">
       <button class="secondary trim-play" id="cloudTrimPlayBtn" type="button">▶ Nghe đoạn chọn</button>
-      <div class="trim-number-grid">
-        <label>Điểm đầu (giây)<input id="cloudTrimStartInput" type="number" min="0" step="0.1" value="0.0" /></label>
-        <label>Điểm cuối (giây)<input id="cloudTrimEndInput" type="number" min="0" step="0.1" value="0.0" /></label>
-      </div>
-      <div class="trim-actions">
-        <button class="ghost" id="cloudTrimCancelBtn" type="button">Dùng từ đầu</button>
-        <button class="primary trim-use" id="cloudTrimUseBtn" type="button">Dùng đoạn này</button>
-      </div>
+      <div class="trim-number-grid"><label>Điểm đầu (giây)<input id="cloudTrimStartInput" type="number" min="0" step="0.1" value="0.0" /></label><label>Điểm cuối (giây)<input id="cloudTrimEndInput" type="number" min="0" step="0.1" value="0.0" /></label></div>
+      <div class="trim-actions"><button class="ghost" id="cloudTrimCancelBtn" type="button">Dùng từ đầu</button><button class="primary trim-use" id="cloudTrimUseBtn" type="button">Dùng đoạn này</button></div>
     </div>
     <audio id="cloudTrimAudioPlayer" preload="metadata"></audio>
   `;
-  const firstGrid = document.querySelector('#view-render > .grid.two');
-  firstGrid?.insertAdjacentElement('afterend', card);
+  document.querySelector('#view-render > .grid.two')?.insertAdjacentElement('afterend', card);
 
   cloudTrimmer = new AudioTrimmer({
-    rootId: 'cloudAudioTrimCard',
-    canvasId: 'cloudWaveformCanvas',
-    stageId: 'cloudWaveformStage',
-    selectionId: 'cloudWaveformSelection',
-    startHandleId: 'cloudTrimStartHandle',
-    endHandleId: 'cloudTrimEndHandle',
-    startInputId: 'cloudTrimStartInput',
-    endInputId: 'cloudTrimEndInput',
-    startLabelId: 'cloudTrimStartLabel',
-    endLabelId: 'cloudTrimEndLabel',
-    durationLabelId: 'cloudTrimDurationLabel',
-    playButtonId: 'cloudTrimPlayBtn',
-    useButtonId: 'cloudTrimUseBtn',
-    cancelButtonId: 'cloudTrimCancelBtn',
-    audioId: 'cloudTrimAudioPlayer',
-    statusId: 'cloudTrimStatus',
+    rootId: 'cloudAudioTrimCard', canvasId: 'cloudWaveformCanvas', stageId: 'cloudWaveformStage', selectionId: 'cloudWaveformSelection',
+    startHandleId: 'cloudTrimStartHandle', endHandleId: 'cloudTrimEndHandle', startInputId: 'cloudTrimStartInput', endInputId: 'cloudTrimEndInput',
+    startLabelId: 'cloudTrimStartLabel', endLabelId: 'cloudTrimEndLabel', durationLabelId: 'cloudTrimDurationLabel', playButtonId: 'cloudTrimPlayBtn',
+    useButtonId: 'cloudTrimUseBtn', cancelButtonId: 'cloudTrimCancelBtn', audioId: 'cloudTrimAudioPlayer', statusId: 'cloudTrimStatus',
     onChange: (selection) => {
       musicState.cloudTrim = selection;
       if ($('musicDrop')) $('musicDrop').dataset.cloudTrim = JSON.stringify(selection);
@@ -324,11 +350,7 @@ function installMusicPicker() {
   const sourceSwitch = document.createElement('div');
   sourceSwitch.id = 'musicSourceSwitch';
   sourceSwitch.className = 'music-source-switch';
-  sourceSwitch.innerHTML = `
-    <button type="button" class="active" data-source="auto">Auto</button>
-    <button type="button" data-source="cloud">Kho Cloud</button>
-    <button type="button" data-source="local">Máy tính</button>
-  `;
+  sourceSwitch.innerHTML = `<button type="button" class="active" data-source="auto">Auto</button><button type="button" data-source="cloud">Kho Cloud</button><button type="button" data-source="local">Máy tính</button>`;
   const localButton = drop.querySelector('[data-pick="musicInput"]');
   if (localButton) localButton.textContent = 'Chọn nhạc trên máy';
   drop.insertBefore(sourceSwitch, localButton || drop.lastChild);
@@ -341,30 +363,13 @@ function installMusicPicker() {
   const selected = document.createElement('div');
   selected.id = 'cloudSelectedState';
   selected.className = 'music-cloud-state';
-  selected.innerHTML = `
-    <strong id="cloudSelectedName">Chưa chọn nhạc Cloud</strong>
-    <div class="music-cloud-actions">
-      <button class="music-mini-btn" id="cloudSelectedPlay" type="button">▶ Nghe</button>
-      <button class="music-mini-btn" id="cloudSelectedTrim" type="button">✂ Cắt tay</button>
-      <button class="music-mini-btn" id="cloudSelectedChange" type="button">Đổi bài</button>
-    </div>
-  `;
+  selected.innerHTML = `<strong id="cloudSelectedName">Chưa chọn nhạc Cloud</strong><div class="music-cloud-actions"><button class="music-mini-btn" id="cloudSelectedPlay" type="button">▶ Nghe</button><button class="music-mini-btn" id="cloudSelectedTrim" type="button">✂ Cắt tay</button><button class="music-mini-btn" id="cloudSelectedChange" type="button">Đổi bài</button></div>`;
   drop.append(selected);
 
   const picker = document.createElement('section');
   picker.id = 'cloudMusicPicker';
   picker.className = 'card cloud-music-picker';
-  picker.innerHTML = `
-    <div class="card-head">
-      <div><p class="eyebrow">CLOUD MUSIC</p><h2>Chọn nhạc có sẵn trên Cloud</h2></div>
-      <button class="ghost small" id="closeCloudMusicPicker" type="button">Đóng</button>
-    </div>
-    <div class="cloud-music-toolbar">
-      <label>Tìm bài nhạc<input id="cloudMusicSearch" type="search" placeholder="Nhập tên bài..." /></label>
-      <button class="ghost" id="refreshCloudMusic" type="button">↻ Làm mới</button>
-    </div>
-    <div class="cloud-music-list" id="cloudMusicList"></div>
-  `;
+  picker.innerHTML = `<div class="card-head"><div><p class="eyebrow">CLOUD MUSIC</p><h2>Chọn nhạc có sẵn trên Cloud</h2></div><button class="ghost small" id="closeCloudMusicPicker" type="button">Đóng</button></div><div class="cloud-music-toolbar"><label>Tìm bài nhạc<input id="cloudMusicSearch" type="search" placeholder="Nhập tên bài..." /></label><button class="ghost" id="refreshCloudMusic" type="button">↻ Làm mới</button></div><div class="cloud-music-list" id="cloudMusicList"></div>`;
   document.querySelector('#view-render > .grid.two')?.insertAdjacentElement('afterend', picker);
 
   sourceSwitch.querySelector('[data-source="auto"]').addEventListener('click', () => {
@@ -375,26 +380,14 @@ function installMusicPicker() {
     setSourceActive('auto');
     if ($('musicUploadStatus')) $('musicUploadStatus').textContent = '';
   });
-  sourceSwitch.querySelector('[data-source="cloud"]').addEventListener('click', () => {
-    setSourceActive('cloud');
-    picker.classList.add('show');
-    refreshCloudMusic();
-  });
-  sourceSwitch.querySelector('[data-source="local"]').addEventListener('click', () => {
-    clearCloudSelection({ keepPanel: false });
-    setSourceActive('local');
-    localButton?.click();
-  });
-
-  $('closeCloudMusicPicker').addEventListener('click', () => picker.classList.remove('show'));
+  sourceSwitch.querySelector('[data-source="cloud"]').addEventListener('click', () => { setSourceActive('cloud'); picker.classList.add('show'); refreshCloudMusic(); });
+  sourceSwitch.querySelector('[data-source="local"]').addEventListener('click', () => { clearCloudSelection({ keepPanel: false }); setSourceActive('local'); localButton?.click(); });
+  $('closeCloudMusicPicker').addEventListener('click', () => { picker.classList.remove('show'); stopPreview(); });
   $('refreshCloudMusic').addEventListener('click', refreshCloudMusic);
   $('cloudMusicSearch').addEventListener('input', renderCloudList);
   $('cloudSelectedChange').addEventListener('click', () => { picker.classList.add('show'); refreshCloudMusic(); });
   $('cloudSelectedTrim').addEventListener('click', openCloudTrim);
-  $('cloudSelectedPlay').addEventListener('click', async (event) => {
-    if (!musicState.cloudKey) return;
-    await playCloudItem({ key: musicState.cloudKey }, event.currentTarget);
-  });
+  $('cloudSelectedPlay').addEventListener('click', (event) => musicState.cloudKey && playCloudItem({ key: musicState.cloudKey }, event.currentTarget));
 
   $('musicInput')?.addEventListener('change', (event) => {
     const file = event.target.files?.[0] || null;
@@ -418,19 +411,19 @@ function installMusicPicker() {
 
   nameObserver = new MutationObserver(() => setMusicName());
   if ($('musicName')) nameObserver.observe($('musicName'), { childList: true, characterData: true, subtree: true });
-
   window.addEventListener('ngs:library-changed', (event) => {
     if (event.detail?.kind === 'music') {
+      musicState.urlCache.delete(event.detail.key);
       if (event.detail.key && event.detail.key === musicState.cloudKey) clearCloudSelection();
       if (picker.classList.contains('show')) refreshCloudMusic();
     }
   });
-
+  window.addEventListener('beforeunload', () => stopPreview({ rewind: true, clearKey: true }));
   installCloudTrimCard();
 }
 
 function patchFetchForMusicSelection() {
-  window.fetch = async function patchedFetch(input, init = {}) {
+  window.fetch = async function patchedMusicFetch(input, init = {}) {
     const rawUrl = typeof input === 'string' ? input : input?.url || '';
     if (rawUrl === 'ngs-uploaded://music') return new Response('', { status: 200 });
 
@@ -442,13 +435,7 @@ function patchFetchForMusicSelection() {
       try {
         const body = JSON.parse(init.body || '{}');
         if (body.kind === 'music' && body.filename === musicState.localUploadedName) {
-          return new Response(JSON.stringify({
-            ok: true,
-            key: musicState.localUploadedKey,
-            url: 'ngs-uploaded://music',
-            method: 'PUT',
-            headers: {},
-          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          return new Response(JSON.stringify({ ok: true, key: musicState.localUploadedKey, url: 'ngs-uploaded://music', method: 'PUT', headers: {} }), { status: 200, headers: { 'Content-Type': 'application/json' } });
         }
       } catch (_) {}
     }
@@ -467,11 +454,11 @@ function patchFetchForMusicSelection() {
           payload.audio_start_sec = 0;
           payload.audio_end_sec = 0;
         }
-        return nativeFetch(input, { ...init, body: JSON.stringify(payload) });
+        return previousFetch(input, { ...init, body: JSON.stringify(payload) });
       } catch (_) {}
     }
 
-    return nativeFetch(input, init);
+    return previousFetch(input, init);
   };
 }
 
