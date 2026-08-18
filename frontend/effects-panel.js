@@ -51,7 +51,13 @@ const fxState = {
   subtitleModel: 'small',
   subtitleLanguage: 'vi',
   subtitleMinConfidence: 0.38,
+  subtitleFontSize: 68,
+  subtitleYPercent: 78,
+  subtitleSafeWidthPercent: 84,
 };
+
+let liveDragActive = false;
+let previewResizeObserver;
 
 function toast(message) {
   const el = $('toast');
@@ -59,6 +65,68 @@ function toast(message) {
   el.textContent = message;
   el.classList.add('show');
   setTimeout(() => el.classList.remove('show'), 2400);
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, Number(value)));
+}
+
+function previewLyricText() {
+  const pasted = $('lyricsText')?.value || '';
+  const lines = pasted.replace(/\r/g, '').split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !/^\[[^\]]+\]$/.test(line));
+  if (lines.length) return lines[0].replace(/^\[\d{1,2}:\d{2}(?:\.\d+)?\]\s*/, '');
+  return 'Chén đắng chưa vơi, màu mây đã nhòa';
+}
+
+function ensureLiveSubtitlePreview() {
+  const frame = $('previewFrame');
+  if (!frame || $('liveSubtitleOverlay')) return;
+
+  const safe = document.createElement('div');
+  safe.id = 'liveSubtitleSafeArea';
+  safe.className = 'live-subtitle-safe-area';
+  safe.innerHTML = '<span>SAFE AREA</span>';
+
+  const overlay = document.createElement('div');
+  overlay.id = 'liveSubtitleOverlay';
+  overlay.className = 'live-subtitle-overlay style-clean_pro';
+  overlay.title = 'Kéo lên / xuống để đặt vị trí sub';
+  overlay.innerHTML = '<span id="liveSubtitleText"></span><i>↕ kéo</i>';
+
+  frame.append(safe, overlay);
+
+  overlay.addEventListener('pointerdown', (event) => {
+    if (!fxState.subtitleEnabled) return;
+    liveDragActive = true;
+    overlay.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+    setLiveSubtitleYFromPointer(event.clientY);
+  });
+  overlay.addEventListener('pointermove', (event) => {
+    if (!liveDragActive) return;
+    event.preventDefault();
+    setLiveSubtitleYFromPointer(event.clientY);
+  });
+  const stop = () => { liveDragActive = false; };
+  overlay.addEventListener('pointerup', stop);
+  overlay.addEventListener('pointercancel', stop);
+
+  previewResizeObserver = new ResizeObserver(() => updateLiveSubtitlePreview());
+  previewResizeObserver.observe(frame);
+}
+
+function setLiveSubtitleYFromPointer(clientY) {
+  const frame = $('previewFrame');
+  if (!frame) return;
+  const rect = frame.getBoundingClientRect();
+  if (!rect.height) return;
+  fxState.subtitleYPercent = clamp(((clientY - rect.top) / rect.height) * 100, 8, 90);
+  if ($('subtitleYPercent')) $('subtitleYPercent').value = fxState.subtitleYPercent.toFixed(1);
+  fxState.subtitlePosition = fxState.subtitleYPercent < 35 ? 'top' : fxState.subtitleYPercent < 65 ? 'center' : 'bottom';
+  if ($('subtitlePosition')) $('subtitlePosition').value = fxState.subtitlePosition;
+  updateLiveSubtitlePreview();
 }
 
 function installEffectsPanel() {
@@ -94,17 +162,20 @@ function installEffectsPanel() {
       </div>
       <div class="smart-sync-banner" id="smartSyncBanner">
         <strong>🧠 Smart Sync AI</strong>
-        <span>Không cần nhập thời gian. AI nghe đúng đoạn nhạc đang render, lấy timestamp theo từ rồi đối chiếu với lời gốc. Nếu độ tin cậy thấp, hệ thống sẽ không burn sub thay vì cho sub nhảy loạn.</span>
+        <span>Không cần nhập thời gian. AI nghe đúng đoạn nhạc đang render rồi đối chiếu với lời gốc.</span>
       </div>
       <div class="subtitle-settings" id="subtitleSettings">
         <label>Đồng bộ<select id="subtitleSyncMode"><option value="smart" selected>Smart Sync AI — khuyên dùng</option><option value="timed">Dùng timestamp có sẵn (LRC)</option><option value="basic">Căn đều timeline — legacy</option></select></label>
         <label id="subtitleModelLabel">AI model<select id="subtitleModel"><option value="small" selected>Chuẩn hơn — Small</option><option value="base">Nhanh hơn — Base</option></select></label>
         <label>Style<select id="subtitleStyle"></select></label>
         <label>Animation<select id="subtitleAnimation"><option value="fade">Fade</option><option value="pop">Pop</option><option value="slide_up">Slide Up</option><option value="pulse">Pulse</option><option value="none">Không animation</option></select></label>
-        <label>Vị trí<select id="subtitlePosition"><option value="bottom">Dưới</option><option value="center">Giữa</option><option value="top">Trên</option></select></label>
-        <label>Kích thước<select id="subtitleSize"><option value="medium">M</option><option value="large" selected>L</option><option value="xlarge">XL</option></select></label>
+        <label>Preset vị trí<select id="subtitlePosition"><option value="bottom">Dưới</option><option value="center">Giữa</option><option value="top">Trên</option></select></label>
+        <label>Font size <input id="subtitleFontSize" type="number" min="24" max="140" step="1" value="68" /></label>
+        <label>Vị trí Y (%) <input id="subtitleYPercent" type="number" min="8" max="90" step="0.5" value="78" /></label>
+        <label>Safe width (%) <input id="subtitleSafeWidth" type="number" min="55" max="94" step="1" value="84" /></label>
       </div>
-      <div class="subtitle-preview-wrap"><div class="subtitle-preview style-clean_pro" id="subtitlePreview">Ngày tháng ấy, mình từng thương nhau...</div></div>
+      <div class="subtitle-live-note"><strong>LIVE PREVIEW:</strong> bật Sub rồi kéo trực tiếp dòng chữ trên khung Preview. Font size, Y và safe width bên trên chính là thông số sẽ burn vào video.</div>
+      <div class="subtitle-preview-wrap"><div class="subtitle-preview style-clean_pro" id="subtitlePreview">Chén đắng chưa vơi, màu mây đã nhòa</div></div>
     </div>
   `;
 
@@ -156,18 +227,43 @@ function installEffectsPanel() {
   $('subtitleModel').addEventListener('change', (event) => { fxState.subtitleModel = event.target.value; });
   $('subtitleStyle').addEventListener('change', (event) => { fxState.subtitleStyle = event.target.value; updateSubtitlePreview(); });
   $('subtitleAnimation').addEventListener('change', (event) => { fxState.subtitleAnimation = event.target.value; updateSubtitlePreview(); });
-  $('subtitlePosition').addEventListener('change', (event) => { fxState.subtitlePosition = event.target.value; updateSubtitlePreview(); });
-  $('subtitleSize').addEventListener('change', (event) => { fxState.subtitleSize = event.target.value; updateSubtitlePreview(); });
+  $('subtitlePosition').addEventListener('change', (event) => {
+    fxState.subtitlePosition = event.target.value;
+    fxState.subtitleYPercent = { top: 20, center: 50, bottom: 78 }[fxState.subtitlePosition] || 78;
+    $('subtitleYPercent').value = fxState.subtitleYPercent;
+    updateSubtitlePreview();
+  });
+  $('subtitleFontSize').addEventListener('input', (event) => {
+    fxState.subtitleFontSize = clamp(event.target.value, 24, 140);
+    event.target.value = fxState.subtitleFontSize;
+    updateSubtitlePreview();
+  });
+  $('subtitleYPercent').addEventListener('input', (event) => {
+    fxState.subtitleYPercent = clamp(event.target.value, 8, 90);
+    event.target.value = fxState.subtitleYPercent;
+    updateSubtitlePreview();
+  });
+  $('subtitleSafeWidth').addEventListener('input', (event) => {
+    fxState.subtitleSafeWidthPercent = clamp(event.target.value, 55, 94);
+    event.target.value = fxState.subtitleSafeWidthPercent;
+    updateSubtitlePreview();
+  });
+  $('lyricsText')?.addEventListener('input', updateSubtitlePreview);
 
   const legacy = $('renderLyrics');
   if (legacy) {
     fxState.subtitleEnabled = legacy.checked;
     $('proSubtitleEnabled').checked = legacy.checked;
-    legacy.addEventListener('change', () => { fxState.subtitleEnabled = legacy.checked; $('proSubtitleEnabled').checked = legacy.checked; updateSubtitlePreview(); });
+    legacy.addEventListener('change', () => {
+      fxState.subtitleEnabled = legacy.checked;
+      $('proSubtitleEnabled').checked = legacy.checked;
+      updateSubtitlePreview();
+    });
     const oldLine = legacy.closest('.toggle-line');
     if (oldLine) oldLine.hidden = true;
   }
 
+  ensureLiveSubtitlePreview();
   selectEffect(fxState.preset, false);
   updateEffectPreview();
   updateSyncUi();
@@ -209,15 +305,47 @@ function updateSyncUi() {
   }
 }
 
+function applySubtitleStyleClass(element) {
+  if (!element) return;
+  for (const [id] of SUB_STYLES) element.classList.remove(`style-${id}`);
+  element.classList.add(`style-${fxState.subtitleStyle}`);
+}
+
+function updateLiveSubtitlePreview() {
+  ensureLiveSubtitlePreview();
+  const frame = $('previewFrame');
+  const overlay = $('liveSubtitleOverlay');
+  const safe = $('liveSubtitleSafeArea');
+  if (!frame || !overlay || !safe) return;
+
+  const sample = previewLyricText();
+  const text = $('liveSubtitleText');
+  if (text) text.textContent = sample;
+  applySubtitleStyleClass(overlay);
+
+  const shortSide = Math.max(1, Math.min(frame.clientWidth, frame.clientHeight));
+  const cssFontSize = Math.max(8, fxState.subtitleFontSize * shortSide / 1080);
+  overlay.style.fontSize = `${cssFontSize}px`;
+  overlay.style.width = `${fxState.subtitleSafeWidthPercent}%`;
+  overlay.style.left = '50%';
+  overlay.style.top = `${fxState.subtitleYPercent}%`;
+  overlay.style.opacity = fxState.subtitleEnabled ? '1' : '0';
+  overlay.style.pointerEvents = fxState.subtitleEnabled ? 'auto' : 'none';
+
+  safe.style.width = `${fxState.subtitleSafeWidthPercent}%`;
+  safe.classList.toggle('show', fxState.subtitleEnabled);
+  safe.classList.toggle('unsafe-y', fxState.subtitleYPercent < 12 || fxState.subtitleYPercent > 84);
+}
+
 function updateSubtitlePreview() {
   const preview = $('subtitlePreview');
-  if (!preview) return;
-  for (const [id] of SUB_STYLES) preview.classList.remove(`style-${id}`);
-  preview.classList.add(`style-${fxState.subtitleStyle}`);
-  preview.classList.toggle('disabled', !fxState.subtitleEnabled);
-  preview.dataset.animation = fxState.subtitleAnimation;
-  preview.dataset.position = fxState.subtitlePosition;
-  preview.dataset.size = fxState.subtitleSize;
+  if (preview) {
+    applySubtitleStyleClass(preview);
+    preview.classList.toggle('disabled', !fxState.subtitleEnabled);
+    preview.dataset.animation = fxState.subtitleAnimation;
+    preview.textContent = previewLyricText();
+  }
+  updateLiveSubtitlePreview();
 }
 
 function patchFetchForEffects() {
@@ -245,6 +373,9 @@ function patchFetchForEffects() {
           language: fxState.subtitleLanguage,
           model: fxState.subtitleModel,
           min_confidence: fxState.subtitleMinConfidence,
+          font_size: fxState.subtitleFontSize,
+          y_percent: fxState.subtitleYPercent,
+          safe_width_percent: fxState.subtitleSafeWidthPercent,
         };
         payload.lyrics = payload.lyrics || {};
         payload.lyrics.render = fxState.subtitleEnabled;
