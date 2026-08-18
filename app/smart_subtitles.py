@@ -88,7 +88,12 @@ def extract_audio_clip(audio_path: str, out_wav: str, start_sec: float, duration
     cmd += ['-i', audio_path]
     if duration_sec > 0:
         cmd += ['-t', f'{duration_sec:.3f}']
-    cmd += ['-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', out_wav]
+    # Singing is much harder than speech. Keep the vocal band and normalize it before Whisper.
+    cmd += [
+        '-vn', '-ac', '1', '-ar', '16000',
+        '-af', 'highpass=f=90,lowpass=f=8000,dynaudnorm=f=150:g=15',
+        '-c:a', 'pcm_s16le', out_wav,
+    ]
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return out_wav
 
@@ -161,10 +166,7 @@ def _best_window(expected: list[str], recognized: list[str], prior_ratio: float)
     best = (0, min(n, max(r, 1)), -1.0)
     step = 1 if n <= 350 else max(1, n // 220)
     for length in lengths:
-        if length >= n:
-            starts = [0]
-        else:
-            starts = range(0, n - length + 1, step)
+        starts = [0] if length >= n else range(0, n - length + 1, step)
         for start in starts:
             window = expected[start:start + length]
             ratio = SequenceMatcher(None, window, recognized, autojunk=False).ratio()
@@ -192,7 +194,7 @@ def _align_tokens(expected: list[str], recognized: list[str]) -> tuple[dict[int,
     for i in range(1, n + 1):
         for j in range(1, m + 1):
             sim = _token_similarity(expected[i - 1], recognized[j - 1])
-            subst = 1.0 - sim if sim >= 0.38 else 1.05
+            subst = 1.0 - sim if sim >= 0.34 else 1.05
             choices = (
                 (dp[i - 1][j - 1] + subst, 'M'),
                 (dp[i - 1][j] + delete_cost, 'D'),
@@ -206,7 +208,7 @@ def _align_tokens(expected: list[str], recognized: list[str]) -> tuple[dict[int,
         op = bt[i][j]
         if op == 'M' and i > 0 and j > 0:
             sim = _token_similarity(expected[i - 1], recognized[j - 1])
-            if sim >= 0.48:
+            if sim >= 0.42:
                 mapping[i - 1] = (j - 1, sim)
                 similarities.append(sim)
             i -= 1
@@ -267,6 +269,62 @@ def _interpolate_missing(events: list[TimedLine | None], clip_duration_sec: floa
     return cleaned
 
 
+def _fallback_vocal_timing(
+    lines: list[str],
+    recognized_words: list[dict],
+    clip_start_sec: float,
+    clip_duration_sec: float,
+    audio_total_sec: float,
+) -> list[TimedLine]:
+    """Use Whisper's vocal timing as anchors even when lyric text matching is weak.
+
+    This is intentionally NOT an equal-time fallback. Subtitle boundaries come from
+    recognized vocal word timestamps. Lyrics are chosen near the clip's position in
+    the full song, then distributed across those vocal anchors by lyric word count.
+    """
+    if not lines or not recognized_words or clip_duration_sec <= 0:
+        return []
+
+    avg_tokens_per_line = max(1.0, sum(max(1, len(TOKEN_RE.findall(line))) for line in lines) / len(lines))
+    estimated_lines = int(round(len(recognized_words) / avg_tokens_per_line))
+    estimated_lines = max(1, min(len(lines), estimated_lines + 1))
+
+    prior_ratio = clip_start_sec / audio_total_sec if audio_total_sec > 0 else 0.0
+    prior_ratio = max(0.0, min(1.0, prior_ratio))
+    start_line = int(round(prior_ratio * max(0, len(lines) - 1)))
+    # Let the selected window start slightly before the ratio-estimated line because intros
+    # and instrumental breaks make lyric density non-uniform.
+    start_line = max(0, min(len(lines) - estimated_lines, start_line - 1))
+    selected = lines[start_line:start_line + estimated_lines]
+    if not selected:
+        return []
+
+    weights = [max(1, len(TOKEN_RE.findall(line))) for line in selected]
+    total_weight = max(1, sum(weights))
+    n_words = len(recognized_words)
+    events: list[TimedLine] = []
+    cursor_weight = 0
+    for idx, (line, weight) in enumerate(zip(selected, weights)):
+        start_ratio = cursor_weight / total_weight
+        cursor_weight += weight
+        end_ratio = cursor_weight / total_weight
+        start_i = min(n_words - 1, max(0, int(math.floor(start_ratio * n_words))))
+        end_i = min(n_words - 1, max(start_i, int(math.ceil(end_ratio * n_words)) - 1))
+        start_t = max(0.0, float(recognized_words[start_i]['start']))
+        end_t = min(clip_duration_sec, max(start_t + 0.30, float(recognized_words[end_i]['end'])))
+        if idx + 1 < len(selected):
+            next_ratio = cursor_weight / total_weight
+            next_i = min(n_words - 1, max(0, int(math.floor(next_ratio * n_words))))
+            next_start = float(recognized_words[next_i]['start'])
+            if next_start > start_t + 0.2:
+                end_t = min(end_t + 0.18, next_start + 0.05, clip_duration_sec)
+        if end_t > start_t + 0.12:
+            probs = [float(word.get('probability', 0.0) or 0.0) for word in recognized_words[start_i:end_i + 1]]
+            conf = sum(probs) / max(1, len(probs))
+            events.append(TimedLine(line, start_t, end_t, max(0.18, conf * 0.55)))
+    return events
+
+
 def align_lyrics_smart(
     audio_path: str,
     lyrics_text: str,
@@ -303,9 +361,15 @@ def align_lyrics_smart(
 
     candidate_line_ids = sorted(line_word_hits)
     if not candidate_line_ids:
-        return [], 0.0, {
-            'reason': 'no_line_matches', 'window_score': window_score, 'alignment_confidence': align_conf,
+        fallback = _fallback_vocal_timing(lines, recognized_words, clip_start_sec, clip_duration_sec, audio_total_sec)
+        avg_word_prob = sum(word['probability'] for word in recognized_words) / max(1, len(recognized_words))
+        return fallback, 0.0, {
+            'reason': 'no_line_matches',
+            'fallback_used': 'vocal_timing' if fallback else '',
+            'recognized_words': len(recognized_words),
+            'average_word_probability': round(avg_word_prob, 4),
         }
+
     first_line = max(0, candidate_line_ids[0] - 1)
     last_line = min(len(lines) - 1, candidate_line_ids[-1] + 1)
     events: list[TimedLine | None] = []
@@ -321,18 +385,8 @@ def align_lyrics_smart(
         else:
             events.append(TimedLine(lines[line_i], 0.0, 0.0, 0.0))
 
-    nullable: list[TimedLine | None] = [event if event.confidence > 0 else None for event in events]
-    # Preserve text for short gaps so interpolation can fill only between reliable anchors.
-    for idx, event in enumerate(events):
-        if nullable[idx] is None:
-            nullable[idx] = TimedLine(event.text, 0.0, 0.0, 0.0)
-    # Interpolation helper expects actual None for unknown timings, so use a parallel pass.
-    temp: list[TimedLine | None] = []
-    for event in events:
-        temp.append(event if event.confidence > 0 else None)
+    temp: list[TimedLine | None] = [event if event.confidence > 0 else None for event in events]
     aligned = _interpolate_missing(temp, clip_duration_sec)
-
-    # Add unmatched line text back only for reliable matched lines; this deliberately avoids guessing long gaps.
     matched_by_text = {event.text: event for event in aligned}
     final: list[TimedLine] = []
     for line_i in range(first_line, last_line + 1):
@@ -364,6 +418,17 @@ def align_lyrics_smart(
         'average_word_probability': round(avg_word_prob, 4),
         'timed_lines': len(final),
     }
+
+    # When text alignment is weak, keep Whisper's real vocal timestamps instead of
+    # silently producing no subtitles or reverting to equal-time distribution.
+    if not final or final_conf < 0.38:
+        fallback = _fallback_vocal_timing(lines, recognized_words, clip_start_sec, clip_duration_sec, audio_total_sec)
+        if fallback:
+            diagnostics['fallback_used'] = 'vocal_timing'
+            diagnostics['primary_confidence'] = round(final_conf, 4)
+            diagnostics['timed_lines'] = len(fallback)
+            return fallback, final_conf, diagnostics
+
     return final, final_conf, diagnostics
 
 
