@@ -11,9 +11,11 @@ if str(ROOT) not in sys.path:
 
 from app.job_model import parse_render_job
 from app.lyrics import load_lyrics
+from app.music_dna import probe_audio
 from app.music_selector import choose
 from app.r2 import download, list_keys, upload
 from app.render import render_still
+from app.subtitles import generate_ass
 
 
 def select_audio_from_dna(tmpdir: Path, rules_path: str = 'config/music_rules.json') -> str:
@@ -61,18 +63,30 @@ def main() -> int:
             local_image = tmpdir / f'image{image_suffix}'
             local_audio = tmpdir / f'audio{audio_suffix}'
             local_output = tmpdir / 'output.mp4'
+            render_id = str(raw.get('render_id') or f'{job.job_id}-legacy')
 
             print('JOB:', job.job_id)
-            print('RENDER ID:', raw.get('render_id', 'legacy'))
+            print('RENDER ID:', render_id)
             print('IMAGE:', job.image_key)
             print('AUDIO:', audio_key)
             print('MUSIC MODE:', job.music_mode)
             print('AUDIO START:', job.audio_start_sec)
             print('DURATION:', job.duration_sec)
+            print('VISUAL EFFECT:', job.visual_effect_mode, job.visual_effect_preset, job.visual_effect_intensity)
+            print('SUBTITLE:', job.subtitle_enabled, job.subtitle_style, job.subtitle_animation)
             print('PRESET:', job.aspect_ratio, job.quality, f'{job.width}x{job.height}', f'{job.fps}fps')
 
             download(job.image_key, str(local_image))
             download(audio_key, str(local_audio))
+
+            audio_probe = probe_audio(str(local_audio))
+            audio_total_sec = float(audio_probe.get('duration_sec', 0) or 0)
+            if job.duration_sec > 0:
+                clip_duration_sec = job.duration_sec
+            elif audio_total_sec > 0:
+                clip_duration_sec = max(0.5, audio_total_sec - job.audio_start_sec)
+            else:
+                clip_duration_sec = 0
 
             local_lyrics = None
             if job.lyrics_source == 'r2':
@@ -102,23 +116,54 @@ def main() -> int:
             else:
                 print('LYRICS: none')
 
-            if job.render_lyrics:
-                print('NOTE: render_lyrics requested; V1 stores/extracts lyrics but does not burn timed lyrics yet.')
+            subtitle_path = None
+            subtitle_events = 0
+            if job.subtitle_enabled:
+                if not lyrics_text:
+                    print('SUBTITLE SKIP: no lyrics available')
+                elif clip_duration_sec <= 0:
+                    print('SUBTITLE SKIP: cannot determine clip duration')
+                else:
+                    subtitle_file = tmpdir / 'lyrics.ass'
+                    subtitle_events = generate_ass(
+                        lyrics_text=lyrics_text,
+                        output_path=str(subtitle_file),
+                        width=job.width,
+                        height=job.height,
+                        clip_duration_sec=clip_duration_sec,
+                        audio_total_sec=audio_total_sec,
+                        audio_start_sec=job.audio_start_sec,
+                        lyrics_source=detected_source,
+                        style_name=job.subtitle_style,
+                        animation=job.subtitle_animation,
+                        position=job.subtitle_position,
+                        size=job.subtitle_size,
+                        max_lines=job.subtitle_max_lines,
+                    )
+                    if subtitle_events > 0:
+                        subtitle_path = str(subtitle_file)
+                        print('SUBTITLE EVENTS:', subtitle_events)
+                    else:
+                        print('SUBTITLE SKIP: no usable lyric lines')
 
-            render_still(
+            resolved_effect = render_still(
                 str(local_image),
                 str(local_audio),
                 str(local_output),
                 width=job.width,
                 height=job.height,
                 fps=job.fps,
-                duration_sec=job.duration_sec if job.duration_sec > 0 else None,
+                duration_sec=clip_duration_sec if clip_duration_sec > 0 else None,
                 audio_start_sec=job.audio_start_sec,
+                visual_effect_mode=job.visual_effect_mode,
+                visual_effect_preset=job.visual_effect_preset,
+                visual_effect_intensity=job.visual_effect_intensity,
+                effect_seed=render_id,
+                subtitle_path=subtitle_path,
             )
             upload(str(local_output), job.output_key)
 
             completed_at = datetime.now(timezone.utc).isoformat()
-            render_id = str(raw.get('render_id') or f'{job.job_id}-legacy')
             done = {
                 **raw,
                 'job_id': job.job_id,
@@ -127,10 +172,12 @@ def main() -> int:
                 'completed_at': completed_at,
                 'selected_audio_key': audio_key,
                 'resolved_audio_start_sec': job.audio_start_sec,
-                'resolved_duration_sec': job.duration_sec,
+                'resolved_duration_sec': clip_duration_sec,
                 'resolved_width': job.width,
                 'resolved_height': job.height,
                 'resolved_fps': job.fps,
+                'resolved_visual_effect': resolved_effect,
+                'subtitle_events': subtitle_events,
                 'lyrics_detected_source': detected_source,
                 'extracted_lyrics_key': extracted_lyrics_key,
                 'output_key': job.output_key,
@@ -138,15 +185,14 @@ def main() -> int:
             done_file = tmpdir / 'done.json'
             write_json(done_file, done)
 
-            # Latest pointer for the content code, used by status polling.
             done_key = f'jobs/done/{job.job_id}.json'
             upload(str(done_file), done_key)
 
-            # Immutable render history for the visual completed-video manager.
             history_key = f'jobs/history/{render_id}.json'
             upload(str(done_file), history_key)
 
             print('RENDER JOB OK:', job.output_key)
+            print('RESOLVED EFFECT:', resolved_effect)
             print('DONE STATUS:', done_key)
             print('HISTORY:', history_key)
             return 0
