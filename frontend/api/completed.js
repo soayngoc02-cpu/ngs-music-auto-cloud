@@ -22,9 +22,7 @@ async function signObject(key, disposition = 'inline') {
 
 async function listJson(prefix, maxKeys = 100) {
   const result = await client().send(new ListObjectsV2Command({
-    Bucket: bucket(),
-    Prefix: prefix,
-    MaxKeys: maxKeys,
+    Bucket: bucket(), Prefix: prefix, MaxKeys: maxKeys,
   }));
   return (result.Contents || [])
     .filter((obj) => obj.Key && obj.Key.endsWith('.json'))
@@ -43,7 +41,6 @@ module.exports = async function handler(req, res) {
       listJson('jobs/done/', 200),
     ]);
 
-    // Always prefer immutable history records. Latest pointers are legacy/fallback only.
     const source = [...historyObjects, ...legacyObjects];
     const seenOutputs = new Set();
     const items = [];
@@ -78,6 +75,12 @@ module.exports = async function handler(req, res) {
           music_mode: job.music_mode || '',
           audio_key: job.selected_audio_key || job.audio_key || '',
           image_key: job.image_key || '',
+          visual_effect: job.resolved_visual_effect || job.visual_effect?.preset || 'none',
+          visual_effect_mode: job.visual_effect?.mode || '',
+          subtitle_enabled: Boolean(job.subtitle?.enabled || job.subtitle_events > 0),
+          subtitle_style: job.subtitle?.style || '',
+          subtitle_animation: job.subtitle?.animation || '',
+          subtitle_events: Number(job.subtitle_events || 0),
           output_key: outputKey,
           view_url: viewUrl,
           download_url: downloadUrl,
