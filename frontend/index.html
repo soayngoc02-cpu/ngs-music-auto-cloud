@@ -8,16 +8,16 @@
   <link rel="stylesheet" href="./styles.css" />
   <link rel="stylesheet" href="./audio-trim.css" />
   <link rel="stylesheet" href="./music-picker.css" />
+  <link rel="stylesheet" href="./image-picker.css" />
+  <link rel="stylesheet" href="./effects-panel.css" />
+  <link rel="stylesheet" href="./studio-manager.css" />
 </head>
 <body>
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">
         <div class="logo">NGS</div>
-        <div>
-          <strong>NGS Music</strong>
-          <span>Studio Cloud</span>
-        </div>
+        <div><strong>NGS Music</strong><span>Studio Cloud</span></div>
       </div>
       <nav>
         <button class="nav-item active" data-view="render">Tạo video</button>
@@ -26,52 +26,28 @@
         <button class="nav-item" data-view="outputs">Video hoàn thành</button>
         <button class="nav-item" data-view="settings">Cài đặt</button>
       </nav>
-      <div class="sidebar-status">
-        <span id="apiDot" class="dot offline"></span>
-        <span id="apiStatus">Cloud API đang kiểm tra</span>
-      </div>
+      <div class="sidebar-status"><span id="apiDot" class="dot offline"></span><span id="apiStatus">Cloud API đang kiểm tra</span></div>
     </aside>
 
     <main class="main">
       <header class="topbar">
-        <div>
-          <p class="eyebrow">NGS MUSIC STUDIO</p>
-          <h1 id="pageTitle">Tạo video</h1>
-        </div>
-        <div class="top-actions">
-          <button class="ghost" id="refreshBtn">Làm mới</button>
-          <button class="primary" id="openSettingsBtn">Kiểm tra API</button>
-        </div>
+        <div><p class="eyebrow">NGS MUSIC STUDIO</p><h1 id="pageTitle">Tạo video</h1></div>
+        <div class="top-actions"><button class="ghost" id="refreshBtn">Làm mới</button><button class="primary" id="openSettingsBtn">Kiểm tra API</button></div>
       </header>
 
       <section class="view active" id="view-render">
         <div class="grid two">
           <section class="card">
-            <div class="card-head">
-              <div>
-                <p class="eyebrow">JOB</p>
-                <h2>Thông tin video</h2>
-              </div>
-              <span class="pill" id="resolutionBadge">1080 × 1920</span>
-            </div>
-
-            <label>Mã nội dung
-              <input id="jobId" type="text" value="C001" autocomplete="off" />
-            </label>
-
+            <div class="card-head"><div><p class="eyebrow">JOB</p><h2>Thông tin video</h2></div><span class="pill" id="resolutionBadge">1080 × 1920</span></div>
+            <label>Mã nội dung<input id="jobId" type="text" value="C001" autocomplete="off" /></label>
             <div class="upload-grid">
               <div class="upload-box" id="imageDrop">
-                <span class="upload-label">Hình ảnh</span>
-                <strong id="imageName">Chưa chọn hình</strong>
-                <small>JPG, PNG, WEBP</small>
+                <span class="upload-label">Hình ảnh</span><strong id="imageName">Chưa chọn hình</strong><small>JPG, PNG, WEBP</small>
                 <input id="imageInput" type="file" accept="image/jpeg,image/png,image/webp" />
                 <button class="secondary" data-pick="imageInput">Chọn hình</button>
               </div>
-
               <div class="upload-box" id="musicDrop">
-                <span class="upload-label">Nhạc</span>
-                <strong id="musicName">Auto Music Selector</strong>
-                <small>MP3, WAV, M4A, AAC, FLAC, OGG</small>
+                <span class="upload-label">Nhạc</span><strong id="musicName">Auto Music Selector</strong><small>MP3, WAV, M4A, AAC, FLAC, OGG</small>
                 <input id="musicInput" type="file" accept="audio/*" />
                 <button class="secondary" data-pick="musicInput">Chọn nhạc</button>
                 <button class="text-btn" id="clearMusicBtn">Dùng Auto Selector</button>
@@ -80,12 +56,7 @@
           </section>
 
           <section class="card preview-card">
-            <div class="card-head">
-              <div>
-                <p class="eyebrow">PREVIEW</p>
-                <h2>Xem trước khung hình</h2>
-              </div>
-            </div>
+            <div class="card-head"><div><p class="eyebrow">PREVIEW</p><h2>Xem trước khung hình</h2></div></div>
             <div id="previewFrame" class="preview-frame ratio-9-16">
               <img id="previewImage" alt="Preview" />
               <div class="preview-empty" id="previewEmpty">Ảnh preview</div>
@@ -95,97 +66,33 @@
         </div>
 
         <section class="card">
-          <div class="card-head">
-            <div>
-              <p class="eyebrow">LYRICS</p>
-              <h2>Lời bài hát</h2>
-            </div>
-            <label class="toggle-line"><input id="useLyricsAnalysis" type="checkbox" checked /> Dùng để phân tích</label>
-          </div>
-
+          <div class="card-head"><div><p class="eyebrow">LYRICS</p><h2>Lời bài hát</h2></div><label class="toggle-line"><input id="useLyricsAnalysis" type="checkbox" checked /> Dùng để phân tích</label></div>
           <div class="segmented" id="lyricsSource">
-            <button class="active" data-value="auto">Auto từ nhạc</button>
-            <button data-value="pasted">Dán lời</button>
-            <button data-value="r2">Upload TXT</button>
-            <button data-value="none">Không dùng</button>
+            <button class="active" data-value="auto">Auto từ nhạc</button><button data-value="pasted">Dán lời</button><button data-value="r2">Upload TXT</button><button data-value="none">Không dùng</button>
           </div>
-
           <textarea id="lyricsText" rows="8" placeholder="Dán lời bài hát ở đây..." hidden></textarea>
-          <div id="lyricsUpload" class="inline-upload" hidden>
-            <input id="lyricsInput" type="file" accept="text/plain,.txt" />
-            <button class="secondary" data-pick="lyricsInput">Chọn file TXT</button>
-            <span id="lyricsName">Chưa chọn file</span>
-          </div>
-          <label class="toggle-line"><input id="renderLyrics" type="checkbox" /> Hiển thị lyrics trên video <span class="muted">(đang để dành cho bản sync lyrics)</span></label>
+          <div id="lyricsUpload" class="inline-upload" hidden><input id="lyricsInput" type="file" accept="text/plain,.txt" /><button class="secondary" data-pick="lyricsInput">Chọn file TXT</button><span id="lyricsName">Chưa chọn file</span></div>
+          <label class="toggle-line"><input id="renderLyrics" type="checkbox" /> Hiển thị lyrics trên video <span class="muted">(được điều khiển ở mục Sub chuyên nghiệp)</span></label>
         </section>
 
         <section class="card">
-          <div class="card-head">
-            <div>
-              <p class="eyebrow">OUTPUT</p>
-              <h2>Chuẩn đầu ra</h2>
-            </div>
-          </div>
-
+          <div class="card-head"><div><p class="eyebrow">OUTPUT</p><h2>Chuẩn đầu ra</h2></div></div>
           <div class="option-columns">
-            <div>
-              <span class="field-title">Khung hình</span>
-              <div class="choice-row" id="aspectChoices">
-                <button class="choice active" data-value="9:16"><strong>9:16</strong><small>TikTok / Reels</small></button>
-                <button class="choice" data-value="1:1"><strong>1:1</strong><small>Post vuông</small></button>
-                <button class="choice" data-value="16:9"><strong>16:9</strong><small>YouTube ngang</small></button>
-              </div>
-            </div>
-
-            <div>
-              <span class="field-title">Chất lượng</span>
-              <div class="choice-row" id="qualityChoices">
-                <button class="choice active" data-value="1080"><strong>1080p</strong><small>Mặc định</small></button>
-                <button class="choice" data-value="2k"><strong>2K</strong><small>Chi tiết cao</small></button>
-                <button class="choice" data-value="4k"><strong>4K</strong><small>Nặng nhất</small></button>
-              </div>
-            </div>
+            <div><span class="field-title">Khung hình</span><div class="choice-row" id="aspectChoices"><button class="choice active" data-value="9:16"><strong>9:16</strong><small>TikTok / Reels</small></button><button class="choice" data-value="1:1"><strong>1:1</strong><small>Post vuông</small></button><button class="choice" data-value="16:9"><strong>16:9</strong><small>YouTube ngang</small></button></div></div>
+            <div><span class="field-title">Chất lượng</span><div class="choice-row" id="qualityChoices"><button class="choice active" data-value="1080"><strong>1080p</strong><small>Mặc định</small></button><button class="choice" data-value="2k"><strong>2K</strong><small>Chi tiết cao</small></button><button class="choice" data-value="4k"><strong>4K</strong><small>Nặng nhất</small></button></div></div>
           </div>
-
           <div class="option-columns lower">
-            <label>Thời lượng
-              <select id="durationSelect">
-                <option value="15">15 giây</option>
-                <option value="30" selected>30 giây</option>
-                <option value="60">60 giây</option>
-                <option value="0">Toàn bài</option>
-              </select>
-            </label>
-            <label>FPS
-              <select id="fpsSelect">
-                <option value="30" selected>30 FPS</option>
-                <option value="60">60 FPS</option>
-              </select>
-            </label>
+            <label>Thời lượng<select id="durationSelect"><option value="15">15 giây</option><option value="30" selected>30 giây</option><option value="60">60 giây</option><option value="0">Toàn bài</option></select></label>
+            <label>FPS<select id="fpsSelect"><option value="30" selected>30 FPS</option><option value="60">60 FPS</option></select></label>
           </div>
         </section>
 
-        <section class="render-bar card">
-          <div>
-            <strong id="renderSummary">9:16 · 1080p · 30 giây · 30 FPS</strong>
-            <span id="renderHint">Chọn hình để bắt đầu</span>
-          </div>
-          <button class="primary big" id="renderBtn">RENDER VIDEO</button>
-        </section>
+        <section class="render-bar card"><div><strong id="renderSummary">9:16 · 1080p · 30 giây · 30 FPS</strong><span id="renderHint">Chọn hình để bắt đầu</span></div><button class="primary big" id="renderBtn">RENDER VIDEO</button></section>
 
         <section class="card" id="jobProgressCard" hidden>
-          <div class="card-head">
-            <div>
-              <p class="eyebrow">STATUS</p>
-              <h2 id="jobProgressTitle">Đang xử lý</h2>
-            </div>
-            <span class="pill" id="jobStatusPill">pending</span>
-          </div>
-          <div class="progress-track"><div id="progressBar"></div></div>
-          <div id="jobLog" class="job-log"></div>
-          <div class="job-actions" id="jobActions" hidden>
-            <a class="primary link-btn" id="watchVideoBtn" target="_blank" rel="noopener">Xem / tải video</a>
-          </div>
+          <div class="card-head"><div><p class="eyebrow">STATUS</p><h2 id="jobProgressTitle">Đang xử lý</h2></div><span class="pill" id="jobStatusPill">pending</span></div>
+          <div class="progress-track"><div id="progressBar"></div></div><div id="jobLog" class="job-log"></div>
+          <div class="job-actions" id="jobActions" hidden><a class="primary link-btn" id="watchVideoBtn" target="_blank" rel="noopener">Xem / tải video</a></div>
         </section>
       </section>
 
@@ -197,28 +104,20 @@
         <section class="card"><div class="card-head"><h2>Kho lời bài hát</h2><button class="ghost small" data-load-library="lyrics">Làm mới</button></div><div id="lyricsLibrary" class="list-state">Chưa tải dữ liệu</div></section>
       </section>
 
-      <section class="view" id="view-queue">
-        <section class="card"><div class="card-head"><h2>Theo dõi job</h2></div><label>Mã job<input id="queueJobId" placeholder="C001" /></label><button class="primary" id="checkJobBtn">Kiểm tra trạng thái</button><pre id="queueResult" class="code-box">Chưa kiểm tra.</pre></section>
-      </section>
+      <section class="view" id="view-queue"><section class="card"><div class="card-head"><h2>Theo dõi job</h2></div><label>Mã job<input id="queueJobId" placeholder="C001" /></label><button class="primary" id="checkJobBtn">Kiểm tra trạng thái</button><pre id="queueResult" class="code-box">Chưa kiểm tra.</pre></section></section>
 
-      <section class="view" id="view-outputs">
-        <section class="card"><div class="card-head"><h2>Video hoàn thành</h2></div><p class="muted">Đang tải trình quản lý video...</p><div hidden><input id="outputJobId" /><button id="openOutputBtn" type="button"></button></div></section>
-      </section>
+      <section class="view" id="view-outputs"><section class="card"><div class="card-head"><h2>Video hoàn thành</h2></div><p class="muted">Đang tải trình quản lý video...</p><div hidden><input id="outputJobId" /><button id="openOutputBtn" type="button"></button></div></section></section>
 
       <section class="view" id="view-settings">
-        <section class="card narrow">
-          <div class="card-head"><div><p class="eyebrow">CONNECTION</p><h2>Cloud API tích hợp</h2></div></div>
-          <label>API Base URL<input id="apiBaseInput" /></label>
-          <p class="muted">Mặc định dùng chính domain NGS Music Studio. Không nhập secret vào giao diện này.</p>
-          <div class="inline-row"><button class="primary" id="saveApiBtn">Lưu & kiểm tra</button><button class="ghost" id="clearApiBtn">Dùng mặc định</button></div>
-          <div id="settingsResult" class="status-box">Đang kiểm tra API tích hợp...</div>
-        </section>
+        <section class="card narrow"><div class="card-head"><div><p class="eyebrow">CONNECTION</p><h2>Cloud API tích hợp</h2></div></div><label>API Base URL<input id="apiBaseInput" /></label><p class="muted">Mặc định dùng chính domain NGS Music Studio. Không nhập secret vào giao diện này.</p><div class="inline-row"><button class="primary" id="saveApiBtn">Lưu & kiểm tra</button><button class="ghost" id="clearApiBtn">Dùng mặc định</button></div><div id="settingsResult" class="status-box">Đang kiểm tra API tích hợp...</div></section>
       </section>
     </main>
   </div>
   <div id="toast" class="toast"></div>
   <script type="module" src="./app.js"></script>
   <script type="module" src="./music-picker.js"></script>
+  <script type="module" src="./image-picker.js"></script>
+  <script type="module" src="./effects-panel.js"></script>
   <script type="module" src="./studio-manager.js"></script>
 </body>
 </html>
