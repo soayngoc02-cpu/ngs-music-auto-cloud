@@ -34,32 +34,133 @@ export class AudioTrimmer {
     this.confirmed = false;
     this.peaks = [];
     this.animationFrame = 0;
+    this.stopTimer = 0;
+    this.instanceId = `trim-${Math.random().toString(36).slice(2)}`;
     this.onChange = options.onChange || (() => {});
     this.onUse = options.onUse || (() => {});
     this.onCancel = options.onCancel || (() => {});
 
+    this.installSimpleControls();
     this.bind();
   }
 
+  installSimpleControls() {
+    if (!this.root) return;
+
+    let row = this.root.querySelector('.trim-length-control');
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'trim-length-control';
+      row.innerHTML = `
+        <label class="trim-length-field">
+          <span>Độ dài đoạn cần lấy</span>
+          <div class="trim-length-input-wrap"><input class="trim-length-input" type="number" min="0.5" step="0.1" value="30" /><b>giây</b></div>
+        </label>
+        <div class="trim-length-help">
+          <strong>1. Nhập số giây</strong>
+          <span>Vùng tím tự đúng độ dài. Sau đó kéo nguyên vùng sang trái/phải đến đoạn muốn lấy.</span>
+          <small>Kéo tay nắm ở mép nếu muốn tinh chỉnh riêng điểm đầu/cuối.</small>
+        </div>
+      `;
+      const stage = this.stage || this.root.querySelector('.waveform-stage');
+      stage?.insertAdjacentElement('beforebegin', row);
+    }
+    this.lengthInput = row.querySelector('.trim-length-input');
+
+    if (this.selection && !this.selection.querySelector('.trim-selection-label')) {
+      const badge = document.createElement('span');
+      badge.className = 'trim-selection-label';
+      badge.textContent = 'Kéo để di chuyển';
+      this.selection.append(badge);
+      this.selectionLabel = badge;
+    } else {
+      this.selectionLabel = this.selection?.querySelector('.trim-selection-label') || null;
+    }
+
+    const numberGrid = this.root.querySelector('.trim-number-grid');
+    if (numberGrid && !numberGrid.closest('.trim-precision-details')) {
+      const details = document.createElement('details');
+      details.className = 'trim-precision-details';
+      const summary = document.createElement('summary');
+      summary.textContent = 'Tinh chỉnh bằng số (tùy chọn)';
+      numberGrid.parentNode.insertBefore(details, numberGrid);
+      details.append(summary, numberGrid);
+    }
+  }
+
   bind() {
+    this.lengthInput?.addEventListener('input', () => {
+      const value = Number(this.lengthInput.value);
+      if (Number.isFinite(value) && value >= 0.5) this.setLength(value);
+    });
+    this.lengthInput?.addEventListener('change', () => {
+      const value = Number(this.lengthInput.value);
+      if (!Number.isFinite(value) || value < 0.5) {
+        this.lengthInput.value = Math.max(0.5, this.getSelection().duration || 0.5).toFixed(1);
+      } else {
+        this.setLength(value);
+      }
+    });
+
     this.startInput?.addEventListener('change', () => this.setStart(Number(this.startInput.value)));
     this.endInput?.addEventListener('change', () => this.setEnd(Number(this.endInput.value)));
     this.playButton?.addEventListener('click', () => this.togglePlayback());
     this.useButton?.addEventListener('click', () => this.confirm());
     this.cancelButton?.addEventListener('click', () => this.onCancel());
+
     this.audio?.addEventListener('pause', () => this.updatePlayButton());
     this.audio?.addEventListener('play', () => this.updatePlayButton());
+    this.audio?.addEventListener('timeupdate', () => this.enforcePlaybackEnd());
+    this.audio?.addEventListener('ended', () => this.stopSelectionPlayback(true));
+
+    window.addEventListener('ngs:audio-exclusive-play', (event) => {
+      if (event.detail?.owner !== this.instanceId) this.stopSelectionPlayback(true);
+    });
     window.addEventListener('resize', () => this.draw());
 
     this.bindHandle(this.startHandle, 'start');
     this.bindHandle(this.endHandle, 'end');
+    this.bindSelectionDrag();
 
     this.stage?.addEventListener('pointerdown', (event) => {
-      if (!this.duration || event.target === this.startHandle || event.target === this.endHandle) return;
+      if (!this.duration || event.target === this.startHandle || event.target === this.endHandle || this.selection?.contains(event.target)) return;
       const rect = this.stage.getBoundingClientRect();
       const value = clamp(((event.clientX - rect.left) / rect.width) * this.duration, 0, this.duration);
       if (Math.abs(value - this.start) <= Math.abs(value - this.end)) this.setStart(value);
       else this.setEnd(value);
+    });
+  }
+
+  bindSelectionDrag() {
+    if (!this.selection) return;
+    this.selection.addEventListener('pointerdown', (event) => {
+      if (!this.duration || event.target === this.startHandle || event.target === this.endHandle) return;
+      event.preventDefault();
+      event.stopPropagation();
+      this.stopSelectionPlayback(true);
+      this.selection.setPointerCapture(event.pointerId);
+      const rect = this.stage.getBoundingClientRect();
+      const originX = event.clientX;
+      const originStart = this.start;
+      const length = Math.max(0.5, this.end - this.start);
+      this.selection.classList.add('dragging');
+
+      const move = (moveEvent) => {
+        const delta = ((moveEvent.clientX - originX) / Math.max(1, rect.width)) * this.duration;
+        const nextStart = clamp(originStart + delta, 0, Math.max(0, this.duration - length));
+        this.start = nextStart;
+        this.end = Math.min(this.duration, nextStart + length);
+        this.markChanged(false);
+      };
+      const up = () => {
+        this.selection.classList.remove('dragging');
+        this.selection.removeEventListener('pointermove', move);
+        this.selection.removeEventListener('pointerup', up);
+        this.selection.removeEventListener('pointercancel', up);
+      };
+      this.selection.addEventListener('pointermove', move);
+      this.selection.addEventListener('pointerup', up);
+      this.selection.addEventListener('pointercancel', up);
     });
   }
 
@@ -68,6 +169,7 @@ export class AudioTrimmer {
     handle.addEventListener('pointerdown', (event) => {
       event.preventDefault();
       event.stopPropagation();
+      this.stopSelectionPlayback(true);
       handle.setPointerCapture(event.pointerId);
       const move = (moveEvent) => {
         if (!this.duration) return;
@@ -95,14 +197,8 @@ export class AudioTrimmer {
     this.status.textContent = 'Đang đọc nhạc...';
 
     await new Promise((resolve, reject) => {
-      const ready = () => {
-        cleanup();
-        resolve();
-      };
-      const failed = () => {
-        cleanup();
-        reject(new Error('Không đọc được thời lượng file nhạc'));
-      };
+      const ready = () => { cleanup(); resolve(); };
+      const failed = () => { cleanup(); reject(new Error('Không đọc được thời lượng file nhạc')); };
       const cleanup = () => {
         this.audio.removeEventListener('loadedmetadata', ready);
         this.audio.removeEventListener('error', failed);
@@ -113,19 +209,20 @@ export class AudioTrimmer {
     });
 
     this.duration = Number.isFinite(this.audio.duration) ? this.audio.duration : 0;
-    const initialDuration = Number(preferredDuration) > 0 ? Number(preferredDuration) : Math.min(30, this.duration);
+    const requested = Number(preferredDuration) > 0 ? Number(preferredDuration) : Math.min(30, this.duration);
+    const initialDuration = clamp(requested || this.duration, 0.5, Math.max(0.5, this.duration));
     this.start = 0;
-    this.end = clamp(initialDuration || this.duration, 0, this.duration);
+    this.end = Math.min(this.duration, initialDuration);
     if (this.end <= this.start) this.end = this.duration;
     this.confirmed = false;
     this.syncUi();
 
     try {
       await this.decodeWaveform(file);
-      this.status.textContent = `Đã đọc ${formatAudioTime(this.duration)} · kéo 2 tay nắm để chọn đoạn`;
+      this.status.textContent = `Bài dài ${formatAudioTime(this.duration)} · nhập số giây rồi kéo vùng tím đến đoạn cần lấy`;
     } catch (error) {
       this.peaks = [];
-      this.status.textContent = `Có thể nghe và cắt tay · waveform không giải mã được trên trình duyệt này`;
+      this.status.textContent = 'Có thể nghe và cắt tay · waveform không giải mã được trên trình duyệt này';
       this.draw();
     }
   }
@@ -138,9 +235,7 @@ export class AudioTrimmer {
       const buffer = await file.arrayBuffer();
       const decoded = await context.decodeAudioData(buffer.slice(0));
       const channels = [];
-      for (let channel = 0; channel < decoded.numberOfChannels; channel += 1) {
-        channels.push(decoded.getChannelData(channel));
-      }
+      for (let channel = 0; channel < decoded.numberOfChannels; channel += 1) channels.push(decoded.getChannelData(channel));
       const buckets = 900;
       const block = Math.max(1, Math.floor(decoded.length / buckets));
       const peaks = new Array(buckets).fill(0);
@@ -171,12 +266,12 @@ export class AudioTrimmer {
   }
 
   hide() {
-    this.pause();
+    this.stopSelectionPlayback(true);
     this.root.hidden = true;
   }
 
   clear(hide = true) {
-    this.pause();
+    this.stopSelectionPlayback(false);
     if (this.objectUrl) URL.revokeObjectURL(this.objectUrl);
     this.file = null;
     this.objectUrl = '';
@@ -194,6 +289,16 @@ export class AudioTrimmer {
     this.draw();
   }
 
+  setLength(value) {
+    if (!this.duration) return;
+    const length = clamp(Number(value) || 0.5, 0.5, this.duration);
+    let nextStart = this.start;
+    if (nextStart + length > this.duration) nextStart = Math.max(0, this.duration - length);
+    this.start = nextStart;
+    this.end = Math.min(this.duration, nextStart + length);
+    this.markChanged();
+  }
+
   setStart(value) {
     if (!this.duration) return;
     const maxStart = Math.max(0, this.end - 0.5);
@@ -208,15 +313,16 @@ export class AudioTrimmer {
     this.markChanged();
   }
 
-  markChanged() {
+  markChanged(stopPlayback = true) {
     this.confirmed = false;
-    this.pause();
+    if (stopPlayback) this.stopSelectionPlayback(true);
     this.syncUi();
     this.onChange(this.getSelection());
   }
 
   confirm() {
     if (!this.file || this.end <= this.start) return;
+    this.stopSelectionPlayback(true);
     this.confirmed = true;
     this.syncUi();
     this.onUse(this.getSelection());
@@ -233,6 +339,10 @@ export class AudioTrimmer {
 
   syncUi() {
     const duration = this.getSelection().duration;
+    if (this.lengthInput && document.activeElement !== this.lengthInput) {
+      this.lengthInput.value = duration > 0 ? duration.toFixed(1) : '0.0';
+      this.lengthInput.max = this.duration > 0 ? this.duration.toFixed(1) : '';
+    }
     if (this.startInput) {
       this.startInput.value = this.start.toFixed(1);
       this.startInput.max = this.duration.toFixed(1);
@@ -244,6 +354,7 @@ export class AudioTrimmer {
     if (this.startLabel) this.startLabel.textContent = formatAudioTime(this.start);
     if (this.endLabel) this.endLabel.textContent = formatAudioTime(this.end);
     if (this.durationLabel) this.durationLabel.textContent = `${duration.toFixed(1)} giây`;
+    if (this.selectionLabel) this.selectionLabel.textContent = `${duration.toFixed(1)}s · kéo để di chuyển`;
     if (this.useButton) this.useButton.textContent = this.confirmed ? '✓ Đang dùng đoạn này' : 'Dùng đoạn này';
     if (this.useButton) this.useButton.classList.toggle('confirmed', this.confirmed);
     this.updatePositions();
@@ -264,19 +375,33 @@ export class AudioTrimmer {
   }
 
   async togglePlayback() {
-    if (!this.file || !this.duration) return;
+    if (!this.file || !this.duration || this.end <= this.start) return;
+
     if (!this.audio.paused) {
-      this.pause();
+      this.stopSelectionPlayback(true);
       return;
     }
-    if (this.audio.currentTime < this.start || this.audio.currentTime >= this.end - 0.05) {
-      this.audio.currentTime = this.start;
-    }
+
+    // Preview always restarts at the selected start. Never resume from an old
+    // currentTime because that is confusing when the trim window has moved.
+    window.dispatchEvent(new CustomEvent('ngs:audio-exclusive-play', { detail: { owner: this.instanceId } }));
+    this.clearPlaybackGuards();
     try {
+      this.audio.pause();
+      this.audio.currentTime = this.start;
       await this.audio.play();
       this.monitorPlayback();
+      const remainingMs = Math.max(50, (this.end - this.start) * 1000 + 120);
+      this.stopTimer = window.setTimeout(() => this.stopSelectionPlayback(true), remainingMs);
     } catch (_) {
       this.updatePlayButton();
+    }
+  }
+
+  enforcePlaybackEnd() {
+    if (!this.audio || this.audio.paused) return;
+    if (this.audio.currentTime >= this.end - 0.025 || this.audio.currentTime < this.start - 0.05) {
+      this.stopSelectionPlayback(true);
     }
   }
 
@@ -284,9 +409,8 @@ export class AudioTrimmer {
     cancelAnimationFrame(this.animationFrame);
     const tick = () => {
       if (this.audio.paused) return;
-      if (this.audio.currentTime >= this.end) {
-        this.pause();
-        this.audio.currentTime = this.start;
+      if (this.audio.currentTime >= this.end - 0.025) {
+        this.stopSelectionPlayback(true);
         return;
       }
       this.animationFrame = requestAnimationFrame(tick);
@@ -294,15 +418,29 @@ export class AudioTrimmer {
     this.animationFrame = requestAnimationFrame(tick);
   }
 
-  pause() {
+  clearPlaybackGuards() {
     cancelAnimationFrame(this.animationFrame);
+    this.animationFrame = 0;
+    if (this.stopTimer) window.clearTimeout(this.stopTimer);
+    this.stopTimer = 0;
+  }
+
+  stopSelectionPlayback(resetToStart = true) {
+    this.clearPlaybackGuards();
     if (this.audio && !this.audio.paused) this.audio.pause();
+    if (resetToStart && this.audio && this.duration > 0 && Number.isFinite(this.start)) {
+      try { this.audio.currentTime = this.start; } catch (_) {}
+    }
     this.updatePlayButton();
+  }
+
+  pause() {
+    this.stopSelectionPlayback(false);
   }
 
   updatePlayButton() {
     if (!this.playButton || !this.audio) return;
-    this.playButton.textContent = this.audio.paused ? '▶ Nghe đoạn chọn' : '❚❚ Tạm dừng';
+    this.playButton.textContent = this.audio.paused ? '▶ Nghe đúng đoạn chọn' : '■ Dừng';
   }
 
   draw() {
