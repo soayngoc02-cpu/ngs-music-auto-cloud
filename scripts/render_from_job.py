@@ -16,12 +16,9 @@ from app.lyrics import load_lyrics
 from app.music_dna import probe_audio
 from app.music_selector import choose
 from app.r2 import download, list_keys, upload
-from app.render import render_still
-from app.smart_subtitles import (
-    align_lyrics_smart,
-    generate_ass_from_timed_lines,
-    parse_timed_lyrics,
-)
+from app.render import render_media_timeline
+from app.smart_subtitles import generate_ass_from_timed_lines, parse_timed_lyrics
+from app.smart_subtitles_v2 import align_lyrics_smart_v2
 from app.subtitles import generate_ass
 
 
@@ -29,13 +26,11 @@ def select_audio_from_dna(tmpdir: Path, rules_path: str = 'config/music_rules.js
     dna_keys = [k for k in list_keys('music/dna/') if k.lower().endswith('.json')]
     if not dna_keys:
         raise RuntimeError('No Music DNA files found in R2. Run Music DNA ingest first.')
-
     local_dna = []
     for idx, key in enumerate(dna_keys):
         local = tmpdir / 'dna' / f'{idx:05d}.json'
         download(key, str(local))
         local_dna.append(str(local))
-
     picked = choose(local_dna, rules_path)
     audio_key = str(picked.get('r2_key', '')).strip()
     if not audio_key:
@@ -46,6 +41,23 @@ def select_audio_from_dna(tmpdir: Path, rules_path: str = 'config/music_rules.js
 def write_json(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+
+
+def download_visual_media(job, tmpdir: Path) -> list[dict]:
+    local_items: list[dict] = []
+    for index, item in enumerate(job.media_items):
+        suffix = Path(item.key).suffix or ('.mp4' if item.media_type == 'video' else '.jpg')
+        local = tmpdir / 'visual' / f'{index:03d}{suffix}'
+        local.parent.mkdir(parents=True, exist_ok=True)
+        download(item.key, str(local))
+        local_items.append({
+            'path': str(local),
+            'key': item.key,
+            'type': item.media_type,
+            'duration_sec': item.duration_sec,
+            'start_sec': item.start_sec,
+        })
+    return local_items
 
 
 def main() -> int:
@@ -65,16 +77,14 @@ def main() -> int:
 
         try:
             audio_key = job.audio_key or select_audio_from_dna(tmpdir)
-            image_suffix = Path(job.image_key).suffix or '.jpg'
             audio_suffix = Path(audio_key).suffix or '.mp3'
-            local_image = tmpdir / f'image{image_suffix}'
             local_audio = tmpdir / f'audio{audio_suffix}'
             local_output = tmpdir / 'output.mp4'
             render_id = str(raw.get('render_id') or f'{job.job_id}-legacy')
 
             print('JOB:', job.job_id)
             print('RENDER ID:', render_id)
-            print('IMAGE:', job.image_key)
+            print('MEDIA ITEMS:', len(job.media_items), [(item.media_type, item.key) for item in job.media_items])
             print('AUDIO:', audio_key)
             print('MUSIC MODE:', job.music_mode)
             print('AUDIO START:', job.audio_start_sec)
@@ -84,7 +94,7 @@ def main() -> int:
             print('SUBTITLE LAYOUT:', job.subtitle_font_size, job.subtitle_y_percent, job.subtitle_safe_width_percent)
             print('PRESET:', job.aspect_ratio, job.quality, f'{job.width}x{job.height}', f'{job.fps}fps')
 
-            download(job.image_key, str(local_image))
+            local_media = download_visual_media(job, tmpdir)
             download(audio_key, str(local_audio))
 
             audio_probe = probe_audio(str(local_audio))
@@ -95,6 +105,8 @@ def main() -> int:
                 clip_duration_sec = max(0.5, audio_total_sec - job.audio_start_sec)
             else:
                 clip_duration_sec = 0
+            if clip_duration_sec <= 0:
+                raise RuntimeError('Cannot determine render duration')
 
             local_lyrics = None
             if job.lyrics_source == 'r2':
@@ -134,8 +146,6 @@ def main() -> int:
             if job.subtitle_enabled:
                 if not lyrics_text:
                     raise RuntimeError('Sub is enabled but no lyrics are available for this song')
-                if clip_duration_sec <= 0:
-                    raise RuntimeError('Sub is enabled but clip duration could not be determined')
 
                 subtitle_file = tmpdir / 'lyrics.ass'
                 timed_events = parse_timed_lyrics(
@@ -146,23 +156,16 @@ def main() -> int:
 
                 if timed_events:
                     subtitle_events = generate_ass_from_timed_lines(
-                        timed_events,
-                        str(subtitle_file),
-                        width=job.width,
-                        height=job.height,
-                        style_name=job.subtitle_style,
-                        animation=job.subtitle_animation,
-                        position=job.subtitle_position,
-                        size=job.subtitle_size,
+                        timed_events, str(subtitle_file), job.width, job.height,
+                        job.subtitle_style, job.subtitle_animation, job.subtitle_position, job.subtitle_size,
                     )
                     subtitle_sync_status = 'timed_lyrics'
                     subtitle_sync_confidence = 1.0
                     subtitle_sync_diagnostics = {'timed_lines': len(timed_events), 'source': 'embedded_timestamps'}
-                    print('SUBTITLE TIMED LYRICS:', subtitle_events)
 
                 elif job.subtitle_sync_mode == 'smart':
-                    print('SMART SUBTITLE: listening to selected audio clip...')
-                    smart_events, smart_confidence, diagnostics = align_lyrics_smart(
+                    print('SMART SUBTITLE V2: aligning full selected clip and repairing vocal gaps...')
+                    smart_events, smart_confidence, diagnostics = align_lyrics_smart_v2(
                         audio_path=str(local_audio),
                         lyrics_text=lyrics_text,
                         workdir=str(tmpdir),
@@ -175,32 +178,28 @@ def main() -> int:
                     subtitle_sync_confidence = smart_confidence
                     subtitle_sync_diagnostics = diagnostics
                     fallback_used = diagnostics.get('fallback_used') == 'vocal_timing'
-                    print('SMART SUBTITLE CONFIDENCE:', round(smart_confidence, 4), diagnostics)
-
-                    if smart_events and (smart_confidence >= job.subtitle_min_confidence or fallback_used):
+                    print('SMART SUBTITLE V2:', round(smart_confidence, 4), diagnostics)
+                    if smart_events and (smart_confidence >= job.subtitle_min_confidence or fallback_used or diagnostics.get('repaired_lines', 0) > 0):
                         subtitle_events = generate_ass_from_timed_lines(
-                            smart_events,
-                            str(subtitle_file),
-                            width=job.width,
-                            height=job.height,
-                            style_name=job.subtitle_style,
-                            animation=job.subtitle_animation,
-                            position=job.subtitle_position,
-                            size=job.subtitle_size,
+                            smart_events, str(subtitle_file), job.width, job.height,
+                            job.subtitle_style, job.subtitle_animation, job.subtitle_position, job.subtitle_size,
                         )
-                        subtitle_sync_status = 'smart_vocal_fallback' if fallback_used else 'smart_aligned'
+                        if fallback_used:
+                            subtitle_sync_status = 'smart_v2_vocal_fallback'
+                        elif diagnostics.get('repaired_lines', 0) > 0:
+                            subtitle_sync_status = 'smart_v2_gap_repaired'
+                        else:
+                            subtitle_sync_status = 'smart_v2_aligned'
                     else:
                         reason = diagnostics.get('reason') or 'low_alignment_confidence'
                         raise RuntimeError(
-                            'Smart Sub could not find reliable vocal timing. '
-                            f'reason={reason}, confidence={smart_confidence:.3f}, '
-                            f'min={job.subtitle_min_confidence:.3f}. '
+                            'Smart Sub V2 could not build a reliable subtitle timeline. '
+                            f'reason={reason}, confidence={smart_confidence:.3f}. '
                             'Video was NOT rendered without subtitles.'
                         )
 
                 elif job.subtitle_sync_mode == 'timed':
                     raise RuntimeError('Timed subtitle mode selected but lyrics contain no timestamps')
-
                 else:
                     subtitle_events = generate_ass(
                         lyrics_text=lyrics_text,
@@ -220,18 +219,11 @@ def main() -> int:
                     subtitle_sync_status = 'basic_timeline'
 
                 if subtitle_events <= 0 or not subtitle_file.exists() or subtitle_file.stat().st_size < 64:
-                    raise RuntimeError(
-                        f'Sub was enabled but 0 subtitle events were generated (status={subtitle_sync_status}). '
-                        'Video was NOT rendered without subtitles.'
-                    )
+                    raise RuntimeError(f'Sub was enabled but 0 subtitle events were generated (status={subtitle_sync_status})')
 
                 subtitle_layout = apply_ass_layout(
-                    str(subtitle_file),
-                    width=job.width,
-                    height=job.height,
-                    font_size=job.subtitle_font_size,
-                    y_percent=job.subtitle_y_percent,
-                    safe_width_percent=job.subtitle_safe_width_percent,
+                    str(subtitle_file), job.width, job.height,
+                    job.subtitle_font_size, job.subtitle_y_percent, job.subtitle_safe_width_percent,
                 )
                 subtitle_path = str(subtitle_file)
                 print('SUBTITLE EVENTS:', subtitle_events, 'STATUS:', subtitle_sync_status)
@@ -240,22 +232,18 @@ def main() -> int:
             effect_mode = job.visual_effect_mode
             effect_preset = job.visual_effect_preset
             if effect_mode == 'auto':
-                effect_preset = choose_auto_effect(
-                    seed=render_id,
-                    lyrics_text=lyrics_text,
-                    duration_sec=clip_duration_sec,
-                )
+                effect_preset = choose_auto_effect(render_id, lyrics_text, clip_duration_sec)
                 effect_mode = 'manual'
                 print('AUTO EFFECT CHOSEN:', effect_preset)
 
-            resolved_effect = render_still(
-                str(local_image),
-                str(local_audio),
-                str(local_output),
+            resolved_effect = render_media_timeline(
+                media_files=local_media,
+                audio=str(local_audio),
+                output=str(local_output),
                 width=job.width,
                 height=job.height,
                 fps=job.fps,
-                duration_sec=clip_duration_sec if clip_duration_sec > 0 else None,
+                duration_sec=clip_duration_sec,
                 audio_start_sec=job.audio_start_sec,
                 visual_effect_mode=effect_mode,
                 visual_effect_preset=effect_preset,
@@ -279,6 +267,10 @@ def main() -> int:
                 'resolved_height': job.height,
                 'resolved_fps': job.fps,
                 'resolved_visual_effect': resolved_effect,
+                'resolved_media_items': [
+                    {'key': item.key, 'type': item.media_type, 'duration_sec': item.duration_sec, 'start_sec': item.start_sec}
+                    for item in job.media_items
+                ],
                 'subtitle_events': subtitle_events,
                 'subtitle_sync_status': subtitle_sync_status,
                 'subtitle_sync_confidence': subtitle_sync_confidence,
@@ -290,10 +282,8 @@ def main() -> int:
             }
             done_file = tmpdir / 'done.json'
             write_json(done_file, done)
-
             done_key = f'jobs/done/{job.job_id}.json'
             upload(str(done_file), done_key)
-
             history_key = f'jobs/history/{render_id}.json'
             upload(str(done_file), history_key)
 
