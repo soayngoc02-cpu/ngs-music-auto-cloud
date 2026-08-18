@@ -130,22 +130,53 @@ def main() -> int:
 
             if job.subtitle_enabled:
                 if not lyrics_text:
-                    subtitle_sync_status = 'no_lyrics'
-                    print('SUBTITLE SKIP: no lyrics available')
-                elif clip_duration_sec <= 0:
-                    subtitle_sync_status = 'no_duration'
-                    print('SUBTITLE SKIP: cannot determine clip duration')
-                else:
-                    subtitle_file = tmpdir / 'lyrics.ass'
-                    timed_events = parse_timed_lyrics(
-                        lyrics_text,
+                    raise RuntimeError('Sub is enabled but no lyrics are available for this song')
+                if clip_duration_sec <= 0:
+                    raise RuntimeError('Sub is enabled but clip duration could not be determined')
+
+                subtitle_file = tmpdir / 'lyrics.ass'
+                timed_events = parse_timed_lyrics(
+                    lyrics_text,
+                    clip_start_sec=job.audio_start_sec,
+                    clip_duration_sec=clip_duration_sec,
+                )
+
+                if timed_events:
+                    subtitle_events = generate_ass_from_timed_lines(
+                        timed_events,
+                        str(subtitle_file),
+                        width=job.width,
+                        height=job.height,
+                        style_name=job.subtitle_style,
+                        animation=job.subtitle_animation,
+                        position=job.subtitle_position,
+                        size=job.subtitle_size,
+                    )
+                    subtitle_sync_status = 'timed_lyrics'
+                    subtitle_sync_confidence = 1.0
+                    subtitle_sync_diagnostics = {'timed_lines': len(timed_events), 'source': 'embedded_timestamps'}
+                    print('SUBTITLE TIMED LYRICS:', subtitle_events)
+
+                elif job.subtitle_sync_mode == 'smart':
+                    print('SMART SUBTITLE: listening to selected audio clip...')
+                    smart_events, smart_confidence, diagnostics = align_lyrics_smart(
+                        audio_path=str(local_audio),
+                        lyrics_text=lyrics_text,
+                        workdir=str(tmpdir),
                         clip_start_sec=job.audio_start_sec,
                         clip_duration_sec=clip_duration_sec,
+                        audio_total_sec=audio_total_sec,
+                        language=job.subtitle_language,
+                        model_name=job.subtitle_model,
                     )
+                    subtitle_sync_confidence = smart_confidence
+                    subtitle_sync_diagnostics = diagnostics
+                    fallback_used = diagnostics.get('fallback_used') == 'vocal_timing'
+                    print('SMART SUBTITLE CONFIDENCE:', round(smart_confidence, 4), diagnostics)
 
-                    if timed_events:
+                    if smart_events and (smart_confidence >= job.subtitle_min_confidence or fallback_used):
                         subtitle_events = generate_ass_from_timed_lines(
-                            timed_events,
+                            smart_events,
                             str(subtitle_file),
                             width=job.width,
                             height=job.height,
@@ -154,88 +185,45 @@ def main() -> int:
                             position=job.subtitle_position,
                             size=job.subtitle_size,
                         )
-                        subtitle_sync_status = 'timed_lyrics'
-                        subtitle_sync_confidence = 1.0
-                        subtitle_sync_diagnostics = {'timed_lines': len(timed_events), 'source': 'embedded_timestamps'}
-                        print('SUBTITLE TIMED LYRICS:', subtitle_events)
-                    elif job.subtitle_sync_mode == 'smart':
-                        print('SMART SUBTITLE: listening to selected audio clip...')
-                        smart_events, smart_confidence, diagnostics = align_lyrics_smart(
-                            audio_path=str(local_audio),
-                            lyrics_text=lyrics_text,
-                            workdir=str(tmpdir),
-                            clip_start_sec=job.audio_start_sec,
-                            clip_duration_sec=clip_duration_sec,
-                            audio_total_sec=audio_total_sec,
-                            language=job.subtitle_language,
-                            model_name=job.subtitle_model,
-                        )
-                        subtitle_sync_confidence = smart_confidence
-                        subtitle_sync_diagnostics = diagnostics
-                        print('SMART SUBTITLE CONFIDENCE:', round(smart_confidence, 4), diagnostics)
-                        if smart_events and smart_confidence >= job.subtitle_min_confidence:
-                            subtitle_events = generate_ass_from_timed_lines(
-                                smart_events,
-                                str(subtitle_file),
-                                width=job.width,
-                                height=job.height,
-                                style_name=job.subtitle_style,
-                                animation=job.subtitle_animation,
-                                position=job.subtitle_position,
-                                size=job.subtitle_size,
-                            )
-                            subtitle_sync_status = 'smart_aligned'
-                        else:
-                            subtitle_sync_status = 'low_confidence'
-                            print(
-                                'SUBTITLE SKIP: smart alignment confidence too low; '
-                                f'{smart_confidence:.3f} < {job.subtitle_min_confidence:.3f}'
-                            )
-                    elif job.subtitle_sync_mode == 'timed':
-                        subtitle_sync_status = 'timestamps_missing'
-                        print('SUBTITLE SKIP: timed mode selected but lyrics contain no timestamps')
+                        subtitle_sync_status = 'smart_vocal_fallback' if fallback_used else 'smart_aligned'
                     else:
-                        subtitle_events = generate_ass(
-                            lyrics_text=lyrics_text,
-                            output_path=str(subtitle_file),
-                            width=job.width,
-                            height=job.height,
-                            clip_duration_sec=clip_duration_sec,
-                            audio_total_sec=audio_total_sec,
-                            audio_start_sec=job.audio_start_sec,
-                            lyrics_source=detected_source,
-                            style_name=job.subtitle_style,
-                            animation=job.subtitle_animation,
-                            position=job.subtitle_position,
-                            size=job.subtitle_size,
-                            max_lines=job.subtitle_max_lines,
+                        reason = diagnostics.get('reason') or 'low_alignment_confidence'
+                        raise RuntimeError(
+                            'Smart Sub could not find reliable vocal timing. '
+                            f'reason={reason}, confidence={smart_confidence:.3f}, '
+                            f'min={job.subtitle_min_confidence:.3f}. '
+                            'Video was NOT rendered without subtitles.'
                         )
-                        subtitle_sync_status = 'basic_timeline'
 
-                    if subtitle_events > 0 and subtitle_file.exists():
-                        subtitle_path = str(subtitle_file)
-                        print('SUBTITLE EVENTS:', subtitle_events, 'STATUS:', subtitle_sync_status)
-                    elif subtitle_sync_status not in {'low_confidence', 'timestamps_missing'}:
-                        print('SUBTITLE SKIP: no usable timed lyric lines')
+                elif job.subtitle_sync_mode == 'timed':
+                    raise RuntimeError('Timed subtitle mode selected but lyrics contain no timestamps')
 
-            sync_record_key = ''
-            if job.subtitle_enabled:
-                sync_record = {
-                    'job_id': job.job_id,
-                    'render_id': render_id,
-                    'audio_key': audio_key,
-                    'audio_start_sec': job.audio_start_sec,
-                    'duration_sec': clip_duration_sec,
-                    'sync_mode': job.subtitle_sync_mode,
-                    'status': subtitle_sync_status,
-                    'confidence': subtitle_sync_confidence,
-                    'events': subtitle_events,
-                    'diagnostics': subtitle_sync_diagnostics,
-                }
-                sync_file = tmpdir / 'subtitle-sync.json'
-                write_json(sync_file, sync_record)
-                sync_record_key = f'lyrics/sync/{render_id}.json'
-                upload(str(sync_file), sync_record_key)
+                else:
+                    subtitle_events = generate_ass(
+                        lyrics_text=lyrics_text,
+                        output_path=str(subtitle_file),
+                        width=job.width,
+                        height=job.height,
+                        clip_duration_sec=clip_duration_sec,
+                        audio_total_sec=audio_total_sec,
+                        audio_start_sec=job.audio_start_sec,
+                        lyrics_source=detected_source,
+                        style_name=job.subtitle_style,
+                        animation=job.subtitle_animation,
+                        position=job.subtitle_position,
+                        size=job.subtitle_size,
+                        max_lines=job.subtitle_max_lines,
+                    )
+                    subtitle_sync_status = 'basic_timeline'
+
+                if subtitle_events <= 0 or not subtitle_file.exists() or subtitle_file.stat().st_size < 64:
+                    raise RuntimeError(
+                        f'Sub was enabled but 0 subtitle events were generated (status={subtitle_sync_status}). '
+                        'Video was NOT rendered without subtitles.'
+                    )
+
+                subtitle_path = str(subtitle_file)
+                print('SUBTITLE EVENTS:', subtitle_events, 'STATUS:', subtitle_sync_status)
 
             effect_mode = job.visual_effect_mode
             effect_preset = job.visual_effect_preset
@@ -282,7 +270,7 @@ def main() -> int:
                 'subtitle_events': subtitle_events,
                 'subtitle_sync_status': subtitle_sync_status,
                 'subtitle_sync_confidence': subtitle_sync_confidence,
-                'subtitle_sync_record_key': sync_record_key,
+                'subtitle_sync_diagnostics': subtitle_sync_diagnostics,
                 'lyrics_detected_source': detected_source,
                 'extracted_lyrics_key': extracted_lyrics_key,
                 'output_key': job.output_key,
@@ -298,7 +286,7 @@ def main() -> int:
 
             print('RENDER JOB OK:', job.output_key)
             print('RESOLVED EFFECT:', resolved_effect)
-            print('SUBTITLE SYNC:', subtitle_sync_status, round(subtitle_sync_confidence, 4))
+            print('SUBTITLE STATUS:', subtitle_sync_status, subtitle_events, round(subtitle_sync_confidence, 4))
             print('DONE STATUS:', done_key)
             print('HISTORY:', history_key)
             return 0
