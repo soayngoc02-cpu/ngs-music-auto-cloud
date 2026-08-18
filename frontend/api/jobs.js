@@ -7,6 +7,19 @@ const PRESETS = {
   '16:9': { '1080': [1920, 1080], '2k': [2560, 1440], '4k': [3840, 2160] },
 };
 
+const VISUAL_EFFECTS = new Set([
+  'none', 'zoom_in', 'zoom_out', 'pan_left', 'pan_right', 'pan_up', 'pan_down',
+  'drift', 'pulse', 'ken_burns', 'cinematic', 'dreamy', 'soft_glow', 'vignette',
+  'film_grain', 'warm_film', 'cool_night', 'vintage', 'lofi', 'dramatic',
+  'monochrome', 'dynamic_mix',
+]);
+const SUBTITLE_STYLES = new Set([
+  'clean_pro', 'tiktok_pop', 'neon_glow', 'cinema', 'glass_box', 'gold', 'heavy_outline', 'minimal',
+]);
+const SUBTITLE_ANIMATIONS = new Set(['fade', 'pop', 'slide_up', 'pulse', 'none']);
+const SUBTITLE_POSITIONS = new Set(['top', 'center', 'bottom']);
+const SUBTITLE_SIZES = new Set(['medium', 'large', 'xlarge']);
+
 async function triggerWorkflow(jobKey) {
   const token = required('GITHUB_ACTIONS_TOKEN');
   const owner = process.env.GITHUB_OWNER || 'soayngoc02-cpu';
@@ -73,6 +86,30 @@ module.exports = async function handler(req, res) {
     const renderId = `${jobId}-${renderStamp}`;
     const lyrics = body.lyrics || {};
     const outputKey = String(body.output_key || `output/${jobId}/${renderId}.mp4`);
+
+    const visual = body.visual_effect || {};
+    let effectMode = String(visual.mode || 'auto').toLowerCase();
+    if (!['auto', 'manual'].includes(effectMode)) effectMode = 'auto';
+    let effectPreset = String(visual.preset || 'auto').toLowerCase();
+    if (effectMode === 'manual' && !VISUAL_EFFECTS.has(effectPreset)) {
+      return res.status(400).json({ error: `Invalid visual effect: ${effectPreset}` });
+    }
+    let effectIntensity = Number(visual.intensity ?? 0.65);
+    if (!Number.isFinite(effectIntensity)) effectIntensity = 0.65;
+    effectIntensity = Math.max(0.05, Math.min(1, effectIntensity));
+
+    const subtitleInput = body.subtitle || {};
+    const subtitleEnabled = Boolean(subtitleInput.enabled ?? lyrics.render ?? false);
+    let subtitleStyle = String(subtitleInput.style || 'clean_pro').toLowerCase();
+    if (!SUBTITLE_STYLES.has(subtitleStyle)) subtitleStyle = 'clean_pro';
+    let subtitleAnimation = String(subtitleInput.animation || 'fade').toLowerCase();
+    if (!SUBTITLE_ANIMATIONS.has(subtitleAnimation)) subtitleAnimation = 'fade';
+    let subtitlePosition = String(subtitleInput.position || 'bottom').toLowerCase();
+    if (!SUBTITLE_POSITIONS.has(subtitlePosition)) subtitlePosition = 'bottom';
+    let subtitleSize = String(subtitleInput.size || 'large').toLowerCase();
+    if (!SUBTITLE_SIZES.has(subtitleSize)) subtitleSize = 'large';
+    const subtitleMaxLines = Math.max(1, Math.min(3, Number(subtitleInput.max_lines || 2)));
+
     const job = {
       job_id: jobId,
       render_id: renderId,
@@ -91,7 +128,20 @@ module.exports = async function handler(req, res) {
         key: String(lyrics.key || ''),
         text: String(lyrics.text || ''),
         use_for_analysis: lyrics.use_for_analysis !== false,
-        render: Boolean(lyrics.render),
+        render: subtitleEnabled,
+      },
+      visual_effect: {
+        mode: effectMode,
+        preset: effectPreset,
+        intensity: effectIntensity,
+      },
+      subtitle: {
+        enabled: subtitleEnabled,
+        style: subtitleStyle,
+        animation: subtitleAnimation,
+        position: subtitlePosition,
+        size: subtitleSize,
+        max_lines: subtitleMaxLines,
       },
       requested_width: width,
       requested_height: height,
@@ -99,8 +149,6 @@ module.exports = async function handler(req, res) {
       created_at: now.toISOString(),
     };
 
-    // Remove latest status pointers so a new render with the same content code
-    // can never be mistaken for an older completed render.
     await removeOldStatus(jobId);
 
     const jobKey = `jobs/pending/${jobId}.json`;
