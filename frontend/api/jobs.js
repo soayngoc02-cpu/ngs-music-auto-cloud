@@ -120,6 +120,17 @@ module.exports = async function handler(req, res) {
     if (!Number.isFinite(subtitleMinConfidence)) subtitleMinConfidence = 0.38;
     subtitleMinConfidence = Math.max(0.15, Math.min(0.90, subtitleMinConfidence));
 
+    let subtitleFontSize = Number(subtitleInput.font_size ?? 68);
+    if (!Number.isFinite(subtitleFontSize)) subtitleFontSize = 68;
+    subtitleFontSize = Math.max(24, Math.min(140, subtitleFontSize));
+    const defaultY = subtitlePosition === 'top' ? 20 : subtitlePosition === 'center' ? 50 : 78;
+    let subtitleYPercent = Number(subtitleInput.y_percent ?? defaultY);
+    if (!Number.isFinite(subtitleYPercent)) subtitleYPercent = defaultY;
+    subtitleYPercent = Math.max(5, Math.min(95, subtitleYPercent));
+    let subtitleSafeWidthPercent = Number(subtitleInput.safe_width_percent ?? 84);
+    if (!Number.isFinite(subtitleSafeWidthPercent)) subtitleSafeWidthPercent = 84;
+    subtitleSafeWidthPercent = Math.max(55, Math.min(94, subtitleSafeWidthPercent));
+
     const job = {
       job_id: jobId,
       render_id: renderId,
@@ -156,6 +167,9 @@ module.exports = async function handler(req, res) {
         language: subtitleLanguage,
         model: subtitleModel,
         min_confidence: subtitleMinConfidence,
+        font_size: subtitleFontSize,
+        y_percent: subtitleYPercent,
+        safe_width_percent: subtitleSafeWidthPercent,
       },
       requested_width: width,
       requested_height: height,
