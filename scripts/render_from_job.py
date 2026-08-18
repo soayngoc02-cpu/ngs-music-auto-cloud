@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from app.ass_layout import apply_ass_layout
 from app.effect_selector import choose_auto_effect
 from app.job_model import parse_render_job
 from app.lyrics import load_lyrics
@@ -80,6 +81,7 @@ def main() -> int:
             print('DURATION:', job.duration_sec)
             print('VISUAL EFFECT:', job.visual_effect_mode, job.visual_effect_preset, job.visual_effect_intensity)
             print('SUBTITLE:', job.subtitle_enabled, job.subtitle_sync_mode, job.subtitle_style, job.subtitle_animation)
+            print('SUBTITLE LAYOUT:', job.subtitle_font_size, job.subtitle_y_percent, job.subtitle_safe_width_percent)
             print('PRESET:', job.aspect_ratio, job.quality, f'{job.width}x{job.height}', f'{job.fps}fps')
 
             download(job.image_key, str(local_image))
@@ -127,6 +129,7 @@ def main() -> int:
             subtitle_sync_status = 'disabled'
             subtitle_sync_confidence = 0.0
             subtitle_sync_diagnostics: dict = {}
+            subtitle_layout: dict = {}
 
             if job.subtitle_enabled:
                 if not lyrics_text:
@@ -222,8 +225,17 @@ def main() -> int:
                         'Video was NOT rendered without subtitles.'
                     )
 
+                subtitle_layout = apply_ass_layout(
+                    str(subtitle_file),
+                    width=job.width,
+                    height=job.height,
+                    font_size=job.subtitle_font_size,
+                    y_percent=job.subtitle_y_percent,
+                    safe_width_percent=job.subtitle_safe_width_percent,
+                )
                 subtitle_path = str(subtitle_file)
                 print('SUBTITLE EVENTS:', subtitle_events, 'STATUS:', subtitle_sync_status)
+                print('SUBTITLE SAFE LAYOUT:', subtitle_layout)
 
             effect_mode = job.visual_effect_mode
             effect_preset = job.visual_effect_preset
@@ -271,6 +283,7 @@ def main() -> int:
                 'subtitle_sync_status': subtitle_sync_status,
                 'subtitle_sync_confidence': subtitle_sync_confidence,
                 'subtitle_sync_diagnostics': subtitle_sync_diagnostics,
+                'subtitle_layout': subtitle_layout,
                 'lyrics_detected_source': detected_source,
                 'extracted_lyrics_key': extracted_lyrics_key,
                 'output_key': job.output_key,
