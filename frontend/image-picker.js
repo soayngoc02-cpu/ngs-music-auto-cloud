@@ -1,28 +1,23 @@
 const previousFetch = window.fetch.bind(window);
 const API_BASE = () => (localStorage.getItem('ngs_api_base') || window.location.origin).replace(/\/+$/, '');
 const $ = (id) => document.getElementById(id);
+const PROXY_NAME = '__ngs_visual_timeline_proxy__.png';
 
-const imageState = {
-  cloudKey: '',
-  cloudName: '',
-  cloudItems: [],
-  cloudUrls: new Map(),
-  localUploadedKey: '',
-  localUploadedName: '',
-  localUploadPromise: null,
-  settingCloudFile: false,
+const visualState = {
+  items: [],
+  cloudImages: [],
+  cloudVideos: [],
+  signedUrls: new Map(),
+  selectedPreviewId: '',
+  syncingProxy: false,
 };
 
-function basename(key) {
-  return String(key || '').split('/').pop() || '—';
-}
-
+function uid() { return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`; }
+function basename(key) { return String(key || '').split('/').pop() || '—'; }
 function formatBytes(bytes) {
   const value = Number(bytes || 0);
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / 1024 / 1024).toFixed(2)} MB`;
+  return value < 1024 * 1024 ? `${(value / 1024).toFixed(1)} KB` : `${(value / 1024 / 1024).toFixed(2)} MB`;
 }
-
 function toast(message) {
   const el = $('toast');
   if (!el) return;
@@ -38,217 +33,304 @@ async function apiGet(path) {
   if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
   return body;
 }
-
 async function apiPost(path, payload) {
   const res = await previousFetch(`${API_BASE()}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
   return body;
 }
 
-async function signedImageUrl(key) {
-  const cached = imageState.cloudUrls.get(key);
+async function signedUrl(key) {
+  const cached = visualState.signedUrls.get(key);
   if (cached && Date.now() - cached.createdAt < 45 * 60 * 1000) return cached.url;
   const result = await apiGet(`/api/media-url?key=${encodeURIComponent(key)}`);
-  imageState.cloudUrls.set(key, { url: result.url, createdAt: Date.now() });
+  visualState.signedUrls.set(key, { url: result.url, createdAt: Date.now() });
   return result.url;
 }
 
-function setSourceActive(source) {
-  document.querySelectorAll('#imageSourceSwitch button').forEach((button) => {
-    button.classList.toggle('active', button.dataset.source === source);
+function transparentProxyFile() {
+  const b64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+X7qkAAAAAElFTkSuQmCC';
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  return new File([bytes], PROXY_NAME, { type: 'image/png' });
+}
+
+function syncLegacyProxy() {
+  const input = $('imageInput');
+  if (!input) return;
+  const transfer = new DataTransfer();
+  if (visualState.items.length) transfer.items.add(transparentProxyFile());
+  visualState.syncingProxy = true;
+  input.files = transfer.files;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  visualState.syncingProxy = false;
+  updateDropSummary();
+  updateMainPreview();
+}
+
+function updateDropSummary() {
+  const count = visualState.items.length;
+  if ($('imageName')) $('imageName').textContent = count ? `${count} asset trong timeline` : 'Chưa chọn hình / video';
+  const status = $('visualUploadStatus');
+  if (status && count) {
+    const images = visualState.items.filter((item) => item.type === 'image').length;
+    const videos = count - images;
+    status.textContent = `✓ ${images} ảnh · ${videos} video · đã sẵn sàng trên Cloud`;
+  }
+}
+
+function ensurePreviewVideo() {
+  const frame = $('previewFrame');
+  if (!frame) return null;
+  let video = $('visualPreviewVideo');
+  if (!video) {
+    video = document.createElement('video');
+    video.id = 'visualPreviewVideo';
+    video.muted = true;
+    video.loop = true;
+    video.autoplay = true;
+    video.playsInline = true;
+    video.preload = 'metadata';
+    frame.insertBefore(video, $('previewEmpty'));
+  }
+  return video;
+}
+
+async function updateMainPreview(item = null) {
+  const frame = $('previewFrame');
+  if (!frame) return;
+  const current = item || visualState.items.find((x) => x.id === visualState.selectedPreviewId) || visualState.items[0];
+  const img = $('previewImage');
+  const video = ensurePreviewVideo();
+  if (!current) {
+    frame.classList.remove('has-image', 'has-visual');
+    if (video) { video.pause(); video.removeAttribute('src'); }
+    return;
+  }
+  visualState.selectedPreviewId = current.id;
+  frame.classList.add('has-image', 'has-visual');
+  let url = current.previewUrl;
+  if (!url && current.key) {
+    try { url = await signedUrl(current.key); current.previewUrl = url; } catch (_) {}
+  }
+  if (current.type === 'video') {
+    if (img) img.style.display = 'none';
+    if (video) {
+      video.style.display = 'block';
+      if (url && video.src !== url) video.src = url;
+      video.play().catch(() => {});
+    }
+  } else {
+    if (video) { video.pause(); video.style.display = 'none'; }
+    if (img) {
+      img.style.display = 'block';
+      if (url) img.src = url;
+    }
+  }
+  document.querySelectorAll('.visual-timeline-item').forEach((el) => el.classList.toggle('previewing', el.dataset.id === current.id));
+}
+
+async function uploadLocalFile(file) {
+  const type = file.type.startsWith('video/') ? 'video' : 'image';
+  const signed = await apiPost('/api/upload-url', {
+    kind: type, filename: file.name, content_type: file.type || 'application/octet-stream',
   });
+  const upload = await previousFetch(signed.url, {
+    method: signed.method || 'PUT',
+    headers: signed.headers || { 'Content-Type': file.type || 'application/octet-stream' },
+    body: file,
+  });
+  if (!upload.ok) throw new Error(`Upload ${file.name} lỗi: HTTP ${upload.status}`);
+  return {
+    id: uid(), key: signed.key, type, name: file.name, source: 'local',
+    previewUrl: URL.createObjectURL(file), duration_sec: 0, start_sec: 0,
+  };
 }
 
-function clearCloudImage() {
-  imageState.cloudKey = '';
-  imageState.cloudName = '';
-  const drop = $('imageDrop');
-  if (drop) {
-    delete drop.dataset.cloudKey;
-    delete drop.dataset.cloudName;
-  }
-  $('cloudImageSelected')?.classList.remove('show');
-}
-
-async function useCloudImage(item) {
+async function addLocalFiles(files) {
+  const list = [...files];
+  if (!list.length) return;
+  const status = $('visualUploadStatus');
   try {
-    const url = await signedImageUrl(item.key);
-    const response = await previousFetch(url, { cache: 'no-store' });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const blob = await response.blob();
-    const file = new File([blob], basename(item.key), { type: blob.type || 'image/jpeg' });
-
-    const input = $('imageInput');
-    if (!input) throw new Error('Không tìm thấy ô chọn hình');
-    const transfer = new DataTransfer();
-    transfer.items.add(file);
-    imageState.settingCloudFile = true;
-    input.files = transfer.files;
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-    imageState.settingCloudFile = false;
-
-    imageState.localUploadedKey = '';
-    imageState.localUploadedName = '';
-    imageState.cloudKey = item.key;
-    imageState.cloudName = basename(item.key);
-    const drop = $('imageDrop');
-    if (drop) {
-      drop.dataset.cloudKey = item.key;
-      drop.dataset.cloudName = imageState.cloudName;
+    for (let i = 0; i < list.length; i += 1) {
+      if (status) status.textContent = `Đang upload ${i + 1}/${list.length}: ${list[i].name}`;
+      const item = await uploadLocalFile(list[i]);
+      visualState.items.push(item);
+      window.dispatchEvent(new CustomEvent('ngs:library-changed', { detail: { kind: item.type, key: item.key } }));
     }
-    if ($('cloudImageSelectedName')) $('cloudImageSelectedName').textContent = imageState.cloudName;
-    $('cloudImageSelected')?.classList.add('show');
-    setSourceActive('cloud');
-    $('cloudImagePicker')?.classList.remove('show');
-    if ($('imageUploadStatus')) $('imageUploadStatus').textContent = '✓ Đang dùng ảnh có sẵn trên Cloud';
-    renderCloudImages();
-    toast(`Đang dùng ảnh Cloud: ${imageState.cloudName}`);
+    renderTimeline();
+    syncLegacyProxy();
+    toast(`Đã thêm ${list.length} asset vào timeline`);
   } catch (err) {
-    imageState.settingCloudFile = false;
-    toast(`Không dùng được ảnh Cloud: ${err.message}`);
+    if (status) status.textContent = err.message;
+    toast(err.message);
   }
 }
 
-async function uploadLocalImage(file) {
-  if (!file) return;
-  const status = $('imageUploadStatus');
-  try {
-    if (status) status.textContent = 'Đang lưu ảnh lên Cloud…';
-    const signed = await apiPost('/api/upload-url', {
-      kind: 'image', filename: file.name, content_type: file.type || 'application/octet-stream',
-    });
-    const upload = await previousFetch(signed.url, {
-      method: signed.method || 'PUT',
-      headers: signed.headers || { 'Content-Type': file.type || 'application/octet-stream' },
-      body: file,
-    });
-    if (!upload.ok) throw new Error(`HTTP ${upload.status}`);
-    imageState.localUploadedKey = signed.key;
-    imageState.localUploadedName = file.name;
-    const drop = $('imageDrop');
-    if (drop) {
-      drop.dataset.localUploadedKey = signed.key;
-      drop.dataset.localUploadedName = file.name;
-    }
-    if (status) status.textContent = '✓ Đã lưu ảnh vào Kho Cloud';
-    window.dispatchEvent(new CustomEvent('ngs:library-changed', { detail: { kind: 'image', key: signed.key } }));
-  } catch (err) {
-    imageState.localUploadedKey = '';
-    if (status) status.textContent = `Upload ảnh lỗi: ${err.message}`;
-  }
+function addCloudItem(raw, type) {
+  if (visualState.items.some((item) => item.key === raw.key)) return toast('Asset này đã có trong timeline');
+  const item = {
+    id: uid(), key: raw.key, type, name: basename(raw.key), source: 'cloud',
+    previewUrl: '', duration_sec: 0, start_sec: 0,
+  };
+  visualState.items.push(item);
+  renderTimeline();
+  syncLegacyProxy();
+  $('visualCloudPicker')?.classList.remove('show');
+  toast(`Đã thêm ${type === 'video' ? 'video' : 'ảnh'} Cloud`);
 }
 
-async function hydrateThumbnail(item, img) {
-  try {
-    img.src = await signedImageUrl(item.key);
-  } catch (_) {
-    img.removeAttribute('src');
-  }
+function moveItem(id, delta) {
+  const index = visualState.items.findIndex((item) => item.id === id);
+  const target = index + delta;
+  if (index < 0 || target < 0 || target >= visualState.items.length) return;
+  [visualState.items[index], visualState.items[target]] = [visualState.items[target], visualState.items[index]];
+  renderTimeline();
 }
 
-function renderCloudImages() {
-  const host = $('cloudImageGrid');
+function removeItem(id) {
+  const index = visualState.items.findIndex((item) => item.id === id);
+  if (index < 0) return;
+  const [removed] = visualState.items.splice(index, 1);
+  if (removed?.source === 'local' && removed.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(removed.previewUrl);
+  if (visualState.selectedPreviewId === id) visualState.selectedPreviewId = visualState.items[0]?.id || '';
+  renderTimeline();
+  syncLegacyProxy();
+}
+
+function renderTimeline() {
+  const host = $('visualTimelineList');
   if (!host) return;
-  const query = String($('cloudImageSearch')?.value || '').trim().toLowerCase();
-  const items = imageState.cloudItems.filter((item) => basename(item.key).toLowerCase().includes(query));
-  if (!items.length) {
-    host.innerHTML = '<div class="cloud-image-empty">Không có ảnh phù hợp.</div>';
+  if (!visualState.items.length) {
+    host.innerHTML = '<div class="visual-empty">Chưa có asset. Thêm nhiều ảnh hoặc video từ máy / Cloud.</div>';
+    updateDropSummary();
     return;
   }
   host.innerHTML = '';
-  for (const item of items) {
+  visualState.items.forEach((item, index) => {
     const card = document.createElement('article');
-    card.className = `cloud-image-card${item.key === imageState.cloudKey ? ' selected' : ''}`;
+    card.className = 'visual-timeline-item';
+    card.dataset.id = item.id;
     card.innerHTML = `
-      <div class="cloud-image-thumb"><img alt="${basename(item.key).replace(/"/g, '&quot;')}" loading="lazy" /></div>
-      <div class="cloud-image-info"><strong title="${item.key.replace(/"/g, '&quot;')}">${basename(item.key)}</strong><small>${formatBytes(item.size)}</small></div>
-      <button class="primary cloud-image-use" type="button">Dùng ảnh này</button>
+      <button type="button" class="visual-thumb" title="Xem asset này"><span>${item.type === 'video' ? '▶ VIDEO' : '▧ ẢNH'}</span></button>
+      <div class="visual-meta"><strong>${index + 1}. ${item.name}</strong><small>${item.source === 'cloud' ? 'Cloud' : 'Máy → Cloud'} · ${item.type === 'video' ? 'Video nguồn (mute)' : 'Ảnh'}</small></div>
+      <label>Thời lượng<input class="visual-duration" type="number" min="0" step="0.1" value="${item.duration_sec || 0}" /><small>0 = Auto</small></label>
+      ${item.type === 'video' ? `<label>Bắt đầu<input class="visual-start" type="number" min="0" step="0.1" value="${item.start_sec || 0}" /><small>giây</small></label>` : '<div></div>'}
+      <div class="visual-actions"><button type="button" class="mini up" title="Lên">↑</button><button type="button" class="mini down" title="Xuống">↓</button><button type="button" class="mini remove" title="Bỏ khỏi timeline">✕</button></div>
     `;
-    card.querySelector('.cloud-image-use').addEventListener('click', () => useCloudImage(item));
+    card.querySelector('.visual-thumb').addEventListener('click', () => updateMainPreview(item));
+    card.querySelector('.up').addEventListener('click', () => moveItem(item.id, -1));
+    card.querySelector('.down').addEventListener('click', () => moveItem(item.id, 1));
+    card.querySelector('.remove').addEventListener('click', () => removeItem(item.id));
+    card.querySelector('.visual-duration').addEventListener('change', (e) => { item.duration_sec = Math.max(0, Number(e.target.value || 0)); });
+    card.querySelector('.visual-start')?.addEventListener('change', (e) => { item.start_sec = Math.max(0, Number(e.target.value || 0)); });
     host.append(card);
-    hydrateThumbnail(item, card.querySelector('img'));
+  });
+  updateDropSummary();
+  updateMainPreview();
+}
+
+async function renderCloudPicker() {
+  const host = $('visualCloudGrid');
+  if (!host) return;
+  const query = String($('visualCloudSearch')?.value || '').trim().toLowerCase();
+  const tab = document.querySelector('#visualCloudTabs button.active')?.dataset.type || 'all';
+  const all = [
+    ...visualState.cloudImages.map((item) => ({ ...item, mediaType: 'image' })),
+    ...visualState.cloudVideos.map((item) => ({ ...item, mediaType: 'video' })),
+  ].filter((item) => (tab === 'all' || item.mediaType === tab) && basename(item.key).toLowerCase().includes(query));
+  if (!all.length) {
+    host.innerHTML = '<div class="visual-empty">Không có asset phù hợp.</div>';
+    return;
+  }
+  host.innerHTML = '';
+  for (const item of all) {
+    const card = document.createElement('article');
+    card.className = 'visual-cloud-card';
+    card.innerHTML = `
+      <div class="visual-cloud-thumb"><span>${item.mediaType === 'video' ? '▶ VIDEO' : '▧ ẢNH'}</span></div>
+      <div><strong>${basename(item.key)}</strong><small>${formatBytes(item.size)}</small></div>
+      <button type="button" class="primary">+ Timeline</button>`;
+    card.querySelector('button').addEventListener('click', () => addCloudItem(item, item.mediaType));
+    card.querySelector('.visual-cloud-thumb').addEventListener('click', async () => {
+      const temp = { id: uid(), key: item.key, type: item.mediaType, name: basename(item.key), previewUrl: '' };
+      await updateMainPreview(temp);
+    });
+    host.append(card);
   }
 }
 
-async function refreshCloudImages() {
-  const host = $('cloudImageGrid');
-  if (host) host.innerHTML = '<div class="cloud-image-empty">Đang tải Kho ảnh…</div>';
+async function refreshCloud() {
+  const host = $('visualCloudGrid');
+  if (host) host.innerHTML = '<div class="visual-empty">Đang tải Kho Cloud…</div>';
   try {
-    const result = await apiGet('/api/library?kind=image');
-    imageState.cloudItems = (result.objects || []).sort((a, b) => new Date(b.uploaded || 0) - new Date(a.uploaded || 0));
-    if (imageState.cloudKey && !imageState.cloudItems.some((item) => item.key === imageState.cloudKey)) clearCloudImage();
-    renderCloudImages();
+    const [images, videos] = await Promise.all([apiGet('/api/library?kind=image'), apiGet('/api/library?kind=video')]);
+    visualState.cloudImages = images.objects || [];
+    visualState.cloudVideos = videos.objects || [];
+    renderCloudPicker();
   } catch (err) {
-    if (host) host.innerHTML = `<div class="cloud-image-empty">Lỗi tải kho ảnh: ${err.message}</div>`;
+    if (host) host.innerHTML = `<div class="visual-empty">Lỗi tải kho: ${err.message}</div>`;
   }
 }
 
-function installImagePicker() {
+function installVisualTimeline() {
   const drop = $('imageDrop');
-  if (!drop || $('imageSourceSwitch')) return;
-  const localButton = drop.querySelector('[data-pick="imageInput"]');
-  if (localButton) localButton.textContent = 'Chọn ảnh trên máy';
+  if (!drop || $('visualTimelinePanel')) return;
+  drop.querySelector('.upload-label').textContent = 'Hình / Video';
+  drop.querySelector('small').textContent = 'Nhiều ảnh · MP4/MOV/WEBM/MKV · tự lưu Cloud';
+  const legacyButton = drop.querySelector('[data-pick="imageInput"]');
+  if (legacyButton) legacyButton.hidden = true;
 
-  const sourceSwitch = document.createElement('div');
-  sourceSwitch.id = 'imageSourceSwitch';
-  sourceSwitch.className = 'image-source-switch';
-  sourceSwitch.innerHTML = `<button type="button" data-source="cloud">Kho Cloud</button><button type="button" class="active" data-source="local">Máy tính</button>`;
-  drop.insertBefore(sourceSwitch, localButton || drop.lastChild);
-
+  const controls = document.createElement('div');
+  controls.className = 'visual-source-buttons';
+  controls.innerHTML = `<button type="button" class="secondary" id="addVisualLocal">+ Máy tính</button><button type="button" class="secondary" id="openVisualCloud">☁ Kho Cloud</button>`;
+  drop.append(controls);
   const status = document.createElement('div');
-  status.id = 'imageUploadStatus';
-  status.className = 'image-upload-status';
-  drop.append(status);
+  status.id = 'visualUploadStatus'; status.className = 'image-upload-status'; drop.append(status);
 
-  const selected = document.createElement('div');
-  selected.id = 'cloudImageSelected';
-  selected.className = 'cloud-image-selected';
-  selected.innerHTML = `<strong id="cloudImageSelectedName">Chưa chọn ảnh Cloud</strong><button class="image-mini-btn" id="cloudImageChange" type="button">Đổi ảnh</button>`;
-  drop.append(selected);
+  const localInput = document.createElement('input');
+  localInput.id = 'visualLocalInput'; localInput.type = 'file'; localInput.multiple = true;
+  localInput.accept = 'image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,.m4v,.mkv';
+  localInput.hidden = true; document.body.append(localInput);
 
-  const picker = document.createElement('section');
-  picker.id = 'cloudImagePicker';
-  picker.className = 'card cloud-image-picker';
-  picker.innerHTML = `
-    <div class="card-head"><div><p class="eyebrow">CLOUD IMAGES</p><h2>Chọn ảnh có sẵn trên Cloud</h2></div><button class="ghost small" id="closeCloudImagePicker" type="button">Đóng</button></div>
-    <div class="cloud-image-toolbar"><label>Tìm ảnh<input id="cloudImageSearch" type="search" placeholder="Nhập tên ảnh..." /></label><button class="ghost" id="refreshCloudImages" type="button">↻ Làm mới</button></div>
-    <div class="cloud-image-grid" id="cloudImageGrid"></div>
-  `;
-  document.querySelector('#view-render > .grid.two')?.insertAdjacentElement('afterend', picker);
+  const panel = document.createElement('section');
+  panel.className = 'card visual-timeline-panel'; panel.id = 'visualTimelinePanel';
+  panel.innerHTML = `
+    <div class="card-head"><div><p class="eyebrow">VISUAL TIMELINE</p><h2>Nhiều ảnh + video nguồn</h2><p class="muted">0 giây = Auto chia theo tổng thời lượng. Video nguồn được mute để giữ nhạc đã chọn.</p></div><span class="pill" id="visualCountBadge">0 asset</span></div>
+    <div id="visualTimelineList" class="visual-timeline-list"></div>
+    <div id="visualCloudPicker" class="visual-cloud-picker">
+      <div class="visual-cloud-toolbar"><label>Tìm asset<input id="visualCloudSearch" type="search" placeholder="Tên ảnh / video..." /></label><button type="button" class="ghost" id="refreshVisualCloud">↻ Làm mới</button><button type="button" class="ghost" id="closeVisualCloud">Đóng</button></div>
+      <div class="segmented" id="visualCloudTabs"><button class="active" data-type="all">Tất cả</button><button data-type="image">Ảnh</button><button data-type="video">Video</button></div>
+      <div id="visualCloudGrid" class="visual-cloud-grid"></div>
+    </div>`;
+  document.querySelector('#view-render > .grid.two')?.insertAdjacentElement('afterend', panel);
 
-  sourceSwitch.querySelector('[data-source="cloud"]').addEventListener('click', () => { setSourceActive('cloud'); picker.classList.add('show'); refreshCloudImages(); });
-  sourceSwitch.querySelector('[data-source="local"]').addEventListener('click', () => { clearCloudImage(); setSourceActive('local'); picker.classList.remove('show'); localButton?.click(); });
-  $('closeCloudImagePicker').addEventListener('click', () => picker.classList.remove('show'));
-  $('refreshCloudImages').addEventListener('click', refreshCloudImages);
-  $('cloudImageSearch').addEventListener('input', renderCloudImages);
-  $('cloudImageChange').addEventListener('click', () => { picker.classList.add('show'); refreshCloudImages(); });
-
-  $('imageInput')?.addEventListener('change', (event) => {
-    const file = event.target.files?.[0] || null;
-    if (!file || imageState.settingCloudFile) return;
-    clearCloudImage();
-    setSourceActive('local');
-    imageState.localUploadPromise = uploadLocalImage(file);
+  $('addVisualLocal').addEventListener('click', () => localInput.click());
+  $('openVisualCloud').addEventListener('click', () => { $('visualCloudPicker').classList.add('show'); refreshCloud(); });
+  $('closeVisualCloud').addEventListener('click', () => $('visualCloudPicker').classList.remove('show'));
+  $('refreshVisualCloud').addEventListener('click', refreshCloud);
+  $('visualCloudSearch').addEventListener('input', renderCloudPicker);
+  $('visualCloudTabs').querySelectorAll('button').forEach((button) => button.addEventListener('click', () => {
+    $('visualCloudTabs').querySelectorAll('button').forEach((b) => b.classList.toggle('active', b === button));
+    renderCloudPicker();
+  }));
+  localInput.addEventListener('change', async (event) => {
+    await addLocalFiles(event.target.files || []);
+    localInput.value = '';
   });
 
-  window.addEventListener('ngs:library-changed', (event) => {
-    if (event.detail?.kind === 'image') {
-      imageState.cloudUrls.delete(event.detail.key);
-      if (event.detail.key && event.detail.key === imageState.cloudKey) clearCloudImage();
-      if (picker.classList.contains('show')) refreshCloudImages();
-    }
+  const observer = new MutationObserver(() => {
+    if ($('visualCountBadge')) $('visualCountBadge').textContent = `${visualState.items.length} asset`;
   });
+  observer.observe($('visualTimelineList'), { childList: true });
+  renderTimeline();
 }
 
-function patchFetchForImageSelection() {
-  window.fetch = async function patchedImageFetch(input, init = {}) {
+function patchFetchForVisualTimeline() {
+  window.fetch = async function patchedVisualFetch(input, init = {}) {
     const rawUrl = typeof input === 'string' ? input : input?.url || '';
-    if (rawUrl === 'ngs-uploaded://image') return new Response('', { status: 200 });
+    if (rawUrl === 'ngs-uploaded://visual') return new Response('', { status: 200 });
     let pathname = rawUrl;
     try { pathname = new URL(rawUrl, window.location.origin).pathname; } catch (_) {}
     const method = String(init?.method || 'GET').toUpperCase();
@@ -256,21 +338,23 @@ function patchFetchForImageSelection() {
     if (pathname === '/api/upload-url' && method === 'POST') {
       try {
         const body = JSON.parse(init.body || '{}');
-        if (body.kind === 'image') {
-          if (imageState.cloudKey && body.filename === imageState.cloudName) {
-            return new Response(JSON.stringify({ ok: true, key: imageState.cloudKey, url: 'ngs-uploaded://image', method: 'PUT', headers: {} }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-          }
-          if (imageState.localUploadedKey && body.filename === imageState.localUploadedName) {
-            return new Response(JSON.stringify({ ok: true, key: imageState.localUploadedKey, url: 'ngs-uploaded://image', method: 'PUT', headers: {} }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-          }
+        if (body.kind === 'image' && body.filename === PROXY_NAME && visualState.items.length) {
+          return new Response(JSON.stringify({ ok: true, key: visualState.items[0].key, url: 'ngs-uploaded://visual', method: 'PUT', headers: {} }), {
+            status: 200, headers: { 'Content-Type': 'application/json' },
+          });
         }
       } catch (_) {}
     }
 
-    if (pathname === '/api/jobs' && method === 'POST' && imageState.cloudKey) {
+    if (pathname === '/api/jobs' && method === 'POST' && visualState.items.length) {
       try {
         const payload = JSON.parse(init.body || '{}');
-        payload.image_key = imageState.cloudKey;
+        payload.image_key = visualState.items[0].key;
+        payload.media_items = visualState.items.map((item) => ({
+          key: item.key, type: item.type,
+          duration_sec: Math.max(0, Number(item.duration_sec || 0)),
+          start_sec: Math.max(0, Number(item.start_sec || 0)),
+        }));
         return previousFetch(input, { ...init, body: JSON.stringify(payload) });
       } catch (_) {}
     }
@@ -278,6 +362,10 @@ function patchFetchForImageSelection() {
   };
 }
 
-patchFetchForImageSelection();
-installImagePicker();
-setTimeout(refreshCloudImages, 650);
+patchFetchForVisualTimeline();
+installVisualTimeline();
+setTimeout(refreshCloud, 700);
+window.NGSVisualMedia = {
+  getItems: () => visualState.items.map((item) => ({ key: item.key, type: item.type, duration_sec: item.duration_sec, start_sec: item.start_sec })),
+  hasSelection: () => visualState.items.length > 0,
+};
