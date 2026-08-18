@@ -18,9 +18,7 @@ function client() {
   });
 }
 
-function bucket() {
-  return required('R2_BUCKET');
-}
+function bucket() { return required('R2_BUCKET'); }
 
 function safeName(name) {
   return String(name || 'file')
@@ -34,8 +32,9 @@ function safeName(name) {
 function prefixFor(kind) {
   if (kind === 'music') return 'music/original/';
   if (kind === 'image') return 'images/';
+  if (kind === 'video') return 'video/original/';
   if (kind === 'lyrics') return 'lyrics/original/';
-  throw new Error('kind must be music, image, or lyrics');
+  throw new Error('kind must be music, image, video, or lyrics');
 }
 
 function allowedFile(kind, filename) {
@@ -43,6 +42,7 @@ function allowedFile(kind, filename) {
   const sets = {
     music: ['.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg'],
     image: ['.jpg', '.jpeg', '.png', '.webp'],
+    video: ['.mp4', '.mov', '.m4v', '.webm', '.mkv'],
     lyrics: ['.txt'],
   };
   return Boolean(sets[kind] && sets[kind].some((ext) => name.endsWith(ext)));
