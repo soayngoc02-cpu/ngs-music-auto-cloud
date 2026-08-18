@@ -9,6 +9,8 @@ from app.subtitles import STYLE_PRESETS
 SUBTITLE_ANIMATIONS = {'fade', 'pop', 'slide_up', 'pulse', 'none'}
 SUBTITLE_POSITIONS = {'top', 'center', 'bottom'}
 SUBTITLE_SIZES = {'medium', 'large', 'xlarge'}
+SUBTITLE_SYNC_MODES = {'smart', 'timed', 'basic'}
+SUBTITLE_MODELS = {'base', 'small'}
 
 
 @dataclass
@@ -37,6 +39,10 @@ class RenderJob:
     subtitle_position: str
     subtitle_size: str
     subtitle_max_lines: int
+    subtitle_sync_mode: str
+    subtitle_language: str
+    subtitle_model: str
+    subtitle_min_confidence: float
     width: int
     height: int
 
@@ -101,6 +107,15 @@ def parse_render_job(data: dict[str, Any]) -> RenderJob:
     if subtitle_size not in SUBTITLE_SIZES:
         subtitle_size = 'large'
     subtitle_max_lines = max(1, min(3, int(subtitle.get('max_lines', 2) or 2)))
+    subtitle_sync_mode = str(subtitle.get('sync_mode', 'smart')).strip().lower()
+    if subtitle_sync_mode not in SUBTITLE_SYNC_MODES:
+        subtitle_sync_mode = 'smart'
+    subtitle_language = str(subtitle.get('language', 'vi')).strip().lower() or 'vi'
+    subtitle_model = str(subtitle.get('model', 'small')).strip().lower()
+    if subtitle_model not in SUBTITLE_MODELS:
+        subtitle_model = 'small'
+    subtitle_min_confidence = float(subtitle.get('min_confidence', 0.38) or 0.38)
+    subtitle_min_confidence = max(0.15, min(0.90, subtitle_min_confidence))
 
     return RenderJob(
         job_id=job_id,
@@ -127,6 +142,10 @@ def parse_render_job(data: dict[str, Any]) -> RenderJob:
         subtitle_position=subtitle_position,
         subtitle_size=subtitle_size,
         subtitle_max_lines=subtitle_max_lines,
+        subtitle_sync_mode=subtitle_sync_mode,
+        subtitle_language=subtitle_language,
+        subtitle_model=subtitle_model,
+        subtitle_min_confidence=subtitle_min_confidence,
         width=width,
         height=height,
     )
