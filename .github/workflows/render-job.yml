@@ -19,13 +19,13 @@ jobs:
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
-      HF_HOME: ~/.cache/huggingface
+      HF_HOME: /home/runner/.cache/huggingface
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.11'
           cache: 'pip'
           cache-dependency-path: |
             requirements.txt
@@ -39,7 +39,7 @@ jobs:
       - name: Cache Whisper models
         uses: actions/cache@v4
         with:
-          path: ~/.cache/huggingface
+          path: /home/runner/.cache/huggingface
           key: ngs-faster-whisper-models-v1
           restore-keys: |
             ngs-faster-whisper-models-
