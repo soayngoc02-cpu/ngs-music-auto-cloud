@@ -20,9 +20,10 @@ def _inject_layout_tag(text: str, width: int, height: int, y_percent: float) -> 
     # Slide-up animation already uses \move(...); rewrite it to the exact live-preview Y.
     if '\\move(' in text:
         delta = max(8, int(height * 0.025))
+        replacement = rf'\move({x},{y + delta},{x},{y},0,260)'
         text = re.sub(
             r'\\move\([^)]*\)',
-            rf'\\move({x},{y + delta},{x},{y},0,260)',
+            lambda _match: replacement,
             text,
             count=1,
         )
@@ -30,7 +31,7 @@ def _inject_layout_tag(text: str, width: int, height: int, y_percent: float) -> 
             text = text.replace('{', '{\\an5', 1) if text.startswith('{') else '{\\an5}' + text
         return text
 
-    position_tag = rf'\\an5\\pos({x},{y})'
+    position_tag = rf'\an5\pos({x},{y})'
     if text.startswith('{'):
         close = text.find('}')
         if close >= 0:
