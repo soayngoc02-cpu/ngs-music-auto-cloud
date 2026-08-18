@@ -1,0 +1,33 @@
+name: Effects Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/effects-smoke.yml'
+      - 'scripts/effects_smoke.py'
+      - 'app/render.py'
+      - 'app/subtitles.py'
+      - 'app/job_model.py'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+      - name: Compile Python
+        run: python -m py_compile app/render.py app/subtitles.py app/job_model.py scripts/effects_smoke.py
+      - name: Render representative effects and subtitles
+        run: python scripts/effects_smoke.py
