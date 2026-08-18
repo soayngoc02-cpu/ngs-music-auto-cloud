@@ -47,6 +47,10 @@ const fxState = {
   subtitlePosition: 'bottom',
   subtitleSize: 'large',
   subtitleMaxLines: 2,
+  subtitleSyncMode: 'smart',
+  subtitleModel: 'small',
+  subtitleLanguage: 'vi',
+  subtitleMinConfidence: 0.38,
 };
 
 function toast(message) {
@@ -78,7 +82,7 @@ function installEffectsPanel() {
 
     <div class="effect-auto-box" id="effectAutoBox">
       <strong>Auto Effect</strong>
-      <span>Hệ thống tự chọn một hiệu ứng phù hợp từ nhóm chuyển động + cinematic. Cùng một render ID luôn ra cùng lựa chọn, không random loạn.</span>
+      <span>Hệ thống dùng lyrics + thời lượng clip để ưu tiên nhóm hiệu ứng phù hợp, không chọn ngẫu nhiên vô nghĩa.</span>
     </div>
 
     <div class="effect-grid" id="effectGrid" hidden></div>
@@ -88,8 +92,13 @@ function installEffectsPanel() {
         <div><p class="eyebrow">SUBTITLE FX</p><h3>Sub / Lyrics</h3></div>
         <label class="toggle-line subtitle-enable"><input id="proSubtitleEnabled" type="checkbox" /> Bật sub</label>
       </div>
-      <p class="muted subtitle-note">Nếu lời chưa có timestamp, hệ thống căn line theo tỷ lệ timeline bài hát. Đây chưa phải karaoke word-sync chính xác.</p>
+      <div class="smart-sync-banner" id="smartSyncBanner">
+        <strong>🧠 Smart Sync AI</strong>
+        <span>Không cần nhập thời gian. AI nghe đúng đoạn nhạc đang render, lấy timestamp theo từ rồi đối chiếu với lời gốc. Nếu độ tin cậy thấp, hệ thống sẽ không burn sub thay vì cho sub nhảy loạn.</span>
+      </div>
       <div class="subtitle-settings" id="subtitleSettings">
+        <label>Đồng bộ<select id="subtitleSyncMode"><option value="smart" selected>Smart Sync AI — khuyên dùng</option><option value="timed">Dùng timestamp có sẵn (LRC)</option><option value="basic">Căn đều timeline — legacy</option></select></label>
+        <label id="subtitleModelLabel">AI model<select id="subtitleModel"><option value="small" selected>Chuẩn hơn — Small</option><option value="base">Nhanh hơn — Base</option></select></label>
         <label>Style<select id="subtitleStyle"></select></label>
         <label>Animation<select id="subtitleAnimation"><option value="fade">Fade</option><option value="pop">Pop</option><option value="slide_up">Slide Up</option><option value="pulse">Pulse</option><option value="none">Không animation</option></select></label>
         <label>Vị trí<select id="subtitlePosition"><option value="bottom">Dưới</option><option value="center">Giữa</option><option value="top">Trên</option></select></label>
@@ -140,6 +149,11 @@ function installEffectsPanel() {
     if (legacy) legacy.checked = fxState.subtitleEnabled;
     updateSubtitlePreview();
   });
+  $('subtitleSyncMode').addEventListener('change', (event) => {
+    fxState.subtitleSyncMode = event.target.value;
+    updateSyncUi();
+  });
+  $('subtitleModel').addEventListener('change', (event) => { fxState.subtitleModel = event.target.value; });
   $('subtitleStyle').addEventListener('change', (event) => { fxState.subtitleStyle = event.target.value; updateSubtitlePreview(); });
   $('subtitleAnimation').addEventListener('change', (event) => { fxState.subtitleAnimation = event.target.value; updateSubtitlePreview(); });
   $('subtitlePosition').addEventListener('change', (event) => { fxState.subtitlePosition = event.target.value; updateSubtitlePreview(); });
@@ -156,6 +170,7 @@ function installEffectsPanel() {
 
   selectEffect(fxState.preset, false);
   updateEffectPreview();
+  updateSyncUi();
   updateSubtitlePreview();
 }
 
@@ -175,6 +190,23 @@ function updateEffectPreview() {
   frame.classList.add(`preview-fx-${effect}`);
   const label = fxState.mode === 'auto' ? 'AUTO FX' : (EFFECTS.find(([id]) => id === fxState.preset)?.[1] || fxState.preset);
   if ($('effectActiveBadge')) $('effectActiveBadge').textContent = label;
+}
+
+function updateSyncUi() {
+  const smart = fxState.subtitleSyncMode === 'smart';
+  if ($('subtitleModelLabel')) $('subtitleModelLabel').hidden = !smart;
+  const banner = $('smartSyncBanner');
+  if (!banner) return;
+  if (smart) {
+    banner.classList.remove('warn');
+    banner.innerHTML = '<strong>🧠 Smart Sync AI</strong><span>AI nghe đúng đoạn nhạc đang render rồi đối chiếu với lời gốc. Không cần timestamp.</span>';
+  } else if (fxState.subtitleSyncMode === 'timed') {
+    banner.classList.remove('warn');
+    banner.innerHTML = '<strong>⏱ Timestamp có sẵn</strong><span>Dùng các mốc [00:12.34] trong lời. Nếu không có timestamp, hệ thống sẽ không burn sub.</span>';
+  } else {
+    banner.classList.add('warn');
+    banner.innerHTML = '<strong>⚠ Legacy timeline</strong><span>Chia lời theo thời lượng ước lượng. Chỉ dùng khi bạn chấp nhận độ chính xác thấp.</span>';
+  }
 }
 
 function updateSubtitlePreview() {
@@ -209,6 +241,10 @@ function patchFetchForEffects() {
           position: fxState.subtitlePosition,
           size: fxState.subtitleSize,
           max_lines: fxState.subtitleMaxLines,
+          sync_mode: fxState.subtitleSyncMode,
+          language: fxState.subtitleLanguage,
+          model: fxState.subtitleModel,
+          min_confidence: fxState.subtitleMinConfidence,
         };
         payload.lyrics = payload.lyrics || {};
         payload.lyrics.render = fxState.subtitleEnabled;
