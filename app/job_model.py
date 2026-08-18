@@ -43,6 +43,9 @@ class RenderJob:
     subtitle_language: str
     subtitle_model: str
     subtitle_min_confidence: float
+    subtitle_font_size: float
+    subtitle_y_percent: float
+    subtitle_safe_width_percent: float
     width: int
     height: int
 
@@ -117,6 +120,14 @@ def parse_render_job(data: dict[str, Any]) -> RenderJob:
     subtitle_min_confidence = float(subtitle.get('min_confidence', 0.38) or 0.38)
     subtitle_min_confidence = max(0.15, min(0.90, subtitle_min_confidence))
 
+    subtitle_font_size = float(subtitle.get('font_size', 68) or 68)
+    subtitle_font_size = max(24.0, min(140.0, subtitle_font_size))
+    default_y = {'top': 20.0, 'center': 50.0, 'bottom': 78.0}.get(subtitle_position, 78.0)
+    subtitle_y_percent = float(subtitle.get('y_percent', default_y) or default_y)
+    subtitle_y_percent = max(5.0, min(95.0, subtitle_y_percent))
+    subtitle_safe_width_percent = float(subtitle.get('safe_width_percent', 84) or 84)
+    subtitle_safe_width_percent = max(55.0, min(94.0, subtitle_safe_width_percent))
+
     return RenderJob(
         job_id=job_id,
         image_key=image_key,
@@ -146,6 +157,9 @@ def parse_render_job(data: dict[str, Any]) -> RenderJob:
         subtitle_language=subtitle_language,
         subtitle_model=subtitle_model,
         subtitle_min_confidence=subtitle_min_confidence,
+        subtitle_font_size=subtitle_font_size,
+        subtitle_y_percent=subtitle_y_percent,
+        subtitle_safe_width_percent=subtitle_safe_width_percent,
         width=width,
         height=height,
     )
