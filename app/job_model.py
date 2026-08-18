@@ -11,12 +11,22 @@ SUBTITLE_POSITIONS = {'top', 'center', 'bottom'}
 SUBTITLE_SIZES = {'medium', 'large', 'xlarge'}
 SUBTITLE_SYNC_MODES = {'smart', 'timed', 'basic'}
 SUBTITLE_MODELS = {'base', 'small'}
+MEDIA_TYPES = {'image', 'video'}
+
+
+@dataclass
+class MediaItem:
+    key: str
+    media_type: str
+    duration_sec: float
+    start_sec: float
 
 
 @dataclass
 class RenderJob:
     job_id: str
     image_key: str
+    media_items: list[MediaItem]
     audio_key: str
     output_key: str
     music_mode: str
@@ -50,14 +60,42 @@ class RenderJob:
     height: int
 
 
+def _parse_media_items(data: dict[str, Any]) -> tuple[str, list[MediaItem]]:
+    raw_items = data.get('media_items') or []
+    media_items: list[MediaItem] = []
+    if raw_items and not isinstance(raw_items, list):
+        raise ValueError('media_items must be a list')
+    for raw in raw_items[:40]:
+        if not isinstance(raw, dict):
+            continue
+        key = str(raw.get('key', '')).strip()
+        if not key:
+            continue
+        media_type = str(raw.get('type', raw.get('media_type', 'image'))).strip().lower()
+        if media_type not in MEDIA_TYPES:
+            raise ValueError(f'Unsupported media type: {media_type}')
+        duration_sec = float(raw.get('duration_sec', 0) or 0)
+        start_sec = float(raw.get('start_sec', 0) or 0)
+        if duration_sec < 0 or start_sec < 0:
+            raise ValueError('Media duration/start cannot be negative')
+        media_items.append(MediaItem(key, media_type, duration_sec, start_sec))
+
+    image_key = str(data.get('image_key', '')).strip()
+    if not media_items and image_key:
+        media_items = [MediaItem(image_key, 'image', 0.0, 0.0)]
+    if not media_items:
+        raise ValueError('At least one image or video is required')
+    if not image_key:
+        image_key = media_items[0].key
+    return image_key, media_items
+
+
 def parse_render_job(data: dict[str, Any]) -> RenderJob:
     job_id = str(data.get('job_id', '')).strip()
     if not job_id:
         raise ValueError('job_id is required')
 
-    image_key = str(data.get('image_key', '')).strip()
-    if not image_key:
-        raise ValueError('image_key is required')
+    image_key, media_items = _parse_media_items(data)
 
     audio_key = str(data.get('audio_key', '')).strip()
     music_mode = str(data.get('music_mode', 'file' if audio_key else 'auto')).strip().lower()
@@ -131,6 +169,7 @@ def parse_render_job(data: dict[str, Any]) -> RenderJob:
     return RenderJob(
         job_id=job_id,
         image_key=image_key,
+        media_items=media_items,
         audio_key=audio_key,
         output_key=output_key,
         music_mode=music_mode,
