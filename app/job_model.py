@@ -2,6 +2,13 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.presets import resolve_preset
+from app.render import VISUAL_EFFECTS
+from app.subtitles import STYLE_PRESETS
+
+
+SUBTITLE_ANIMATIONS = {'fade', 'pop', 'slide_up', 'pulse', 'none'}
+SUBTITLE_POSITIONS = {'top', 'center', 'bottom'}
+SUBTITLE_SIZES = {'medium', 'large', 'xlarge'}
 
 
 @dataclass
@@ -21,6 +28,15 @@ class RenderJob:
     lyrics_text: str
     render_lyrics: bool
     use_lyrics_for_analysis: bool
+    visual_effect_mode: str
+    visual_effect_preset: str
+    visual_effect_intensity: float
+    subtitle_enabled: bool
+    subtitle_style: str
+    subtitle_animation: str
+    subtitle_position: str
+    subtitle_size: str
+    subtitle_max_lines: int
     width: int
     height: int
 
@@ -60,6 +76,32 @@ def parse_render_job(data: dict[str, Any]) -> RenderJob:
     if lyrics_source not in {'auto', 'metadata', 'r2', 'pasted', 'none'}:
         raise ValueError(f'Unsupported lyrics source: {lyrics_source}')
 
+    visual = data.get('visual_effect') or {}
+    visual_effect_mode = str(visual.get('mode', 'auto')).strip().lower()
+    if visual_effect_mode not in {'auto', 'manual'}:
+        visual_effect_mode = 'auto'
+    visual_effect_preset = str(visual.get('preset', 'auto')).strip().lower()
+    if visual_effect_mode == 'manual' and visual_effect_preset not in VISUAL_EFFECTS:
+        raise ValueError(f'Unsupported visual effect: {visual_effect_preset}')
+    visual_effect_intensity = float(visual.get('intensity', 0.65) or 0.65)
+    visual_effect_intensity = max(0.05, min(1.0, visual_effect_intensity))
+
+    subtitle = data.get('subtitle') or {}
+    subtitle_enabled = bool(subtitle.get('enabled', lyrics.get('render', False)))
+    subtitle_style = str(subtitle.get('style', 'clean_pro')).strip().lower()
+    if subtitle_style not in STYLE_PRESETS:
+        subtitle_style = 'clean_pro'
+    subtitle_animation = str(subtitle.get('animation', 'fade')).strip().lower()
+    if subtitle_animation not in SUBTITLE_ANIMATIONS:
+        subtitle_animation = 'fade'
+    subtitle_position = str(subtitle.get('position', 'bottom')).strip().lower()
+    if subtitle_position not in SUBTITLE_POSITIONS:
+        subtitle_position = 'bottom'
+    subtitle_size = str(subtitle.get('size', 'large')).strip().lower()
+    if subtitle_size not in SUBTITLE_SIZES:
+        subtitle_size = 'large'
+    subtitle_max_lines = max(1, min(3, int(subtitle.get('max_lines', 2) or 2)))
+
     return RenderJob(
         job_id=job_id,
         image_key=image_key,
@@ -76,6 +118,15 @@ def parse_render_job(data: dict[str, Any]) -> RenderJob:
         lyrics_text=str(lyrics.get('text', '') or ''),
         render_lyrics=bool(lyrics.get('render', False)),
         use_lyrics_for_analysis=bool(lyrics.get('use_for_analysis', True)),
+        visual_effect_mode=visual_effect_mode,
+        visual_effect_preset=visual_effect_preset,
+        visual_effect_intensity=visual_effect_intensity,
+        subtitle_enabled=subtitle_enabled,
+        subtitle_style=subtitle_style,
+        subtitle_animation=subtitle_animation,
+        subtitle_position=subtitle_position,
+        subtitle_size=subtitle_size,
+        subtitle_max_lines=subtitle_max_lines,
         width=width,
         height=height,
     )
