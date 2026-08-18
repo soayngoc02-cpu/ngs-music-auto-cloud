@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from app.effect_selector import choose_auto_effect
 from app.job_model import parse_render_job
 from app.lyrics import load_lyrics
 from app.music_dna import probe_audio
@@ -146,6 +147,17 @@ def main() -> int:
                     else:
                         print('SUBTITLE SKIP: no usable lyric lines')
 
+            effect_mode = job.visual_effect_mode
+            effect_preset = job.visual_effect_preset
+            if effect_mode == 'auto':
+                effect_preset = choose_auto_effect(
+                    seed=render_id,
+                    lyrics_text=lyrics_text,
+                    duration_sec=clip_duration_sec,
+                )
+                effect_mode = 'manual'
+                print('AUTO EFFECT CHOSEN:', effect_preset)
+
             resolved_effect = render_still(
                 str(local_image),
                 str(local_audio),
@@ -155,8 +167,8 @@ def main() -> int:
                 fps=job.fps,
                 duration_sec=clip_duration_sec if clip_duration_sec > 0 else None,
                 audio_start_sec=job.audio_start_sec,
-                visual_effect_mode=job.visual_effect_mode,
-                visual_effect_preset=job.visual_effect_preset,
+                visual_effect_mode=effect_mode,
+                visual_effect_preset=effect_preset,
                 visual_effect_intensity=job.visual_effect_intensity,
                 effect_seed=render_id,
                 subtitle_path=subtitle_path,
