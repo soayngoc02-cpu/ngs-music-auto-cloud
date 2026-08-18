@@ -1,4 +1,5 @@
 import re
+import textwrap
 from pathlib import Path
 
 
@@ -42,6 +43,34 @@ def _inject_layout_tag(text: str, width: int, height: int, y_percent: float) -> 
     return '{' + position_tag + '}' + text
 
 
+def _hard_wrap_dialogue(text: str, max_chars: int) -> str:
+    # Preserve all leading ASS override blocks, then wrap only visible text.
+    tags: list[str] = []
+    rest = text
+    while rest.startswith('{'):
+        close = rest.find('}')
+        if close < 0:
+            break
+        tags.append(rest[:close + 1])
+        rest = rest[close + 1:]
+
+    explicit_lines = rest.split('\\N')
+    wrapped: list[str] = []
+    for visible in explicit_lines:
+        visible = visible.strip()
+        if not visible:
+            continue
+        parts = textwrap.wrap(
+            visible,
+            width=max_chars,
+            break_long_words=False,
+            break_on_hyphens=False,
+            replace_whitespace=False,
+        )
+        wrapped.extend(parts or [visible])
+    return ''.join(tags) + '\\N'.join(wrapped)
+
+
 def apply_ass_layout(
     ass_path: str,
     width: int,
@@ -55,6 +84,7 @@ def apply_ass_layout(
     - Enables smart word wrapping (WrapStyle 0).
     - Applies a numeric logical font size.
     - Constrains text to a horizontal safe width using ASS margins.
+    - Hard-wraps long lyric lines as an additional safety layer.
     - Places every subtitle block at the same Y% shown in the web preview.
     """
     path = Path(ass_path)
@@ -64,7 +94,10 @@ def apply_ass_layout(
     y = _clamp(float(y_percent), 5.0, 95.0)
     logical_font = _clamp(float(font_size), 24.0, 140.0)
     resolved_font = _scaled_font_size(width, height, logical_font)
+    safe_pixels = width * safe_width / 100.0
     margin_h = max(18, int(round(width * (1.0 - safe_width / 100.0) / 2.0)))
+    # Average Vietnamese/Latin glyph is roughly 0.54 em; this is intentionally conservative.
+    max_chars = max(12, min(48, int(safe_pixels / max(1.0, resolved_font * 0.54))))
 
     if re.search(r'^WrapStyle:\s*\d+\s*$', text, flags=re.MULTILINE):
         text = re.sub(r'^WrapStyle:\s*\d+\s*$', 'WrapStyle: 0', text, flags=re.MULTILINE)
@@ -88,7 +121,8 @@ def apply_ass_layout(
             prefix, body = line.split(': ', 1)
             fields = body.split(',', 9)
             if len(fields) == 10:
-                fields[9] = _inject_layout_tag(fields[9], width, height, y)
+                laid_out = _inject_layout_tag(fields[9], width, height, y)
+                fields[9] = _hard_wrap_dialogue(laid_out, max_chars)
                 line = prefix + ': ' + ','.join(fields)
         out.append(line)
 
@@ -99,5 +133,6 @@ def apply_ass_layout(
         'y_percent': round(y, 2),
         'safe_width_percent': round(safe_width, 2),
         'margin_h': margin_h,
+        'max_chars_per_line': max_chars,
         'wrap_style': 0,
     }
