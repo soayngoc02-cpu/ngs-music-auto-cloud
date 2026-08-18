@@ -31,8 +31,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg fonts-dejavu-core fontconfig
 
-      - name: Install Python dependencies
+      - name: Install core Python dependencies
         run: pip install -r requirements.txt
+
+      - name: Detect smart subtitle requirement
+        id: features
+        run: echo "smart_sub=$(python scripts/job_features.py \"${{ inputs.job_key }}\")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Whisper model
+        if: steps.features.outputs.smart_sub == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: ngs-faster-whisper-small-v1
+          restore-keys: |
+            ngs-faster-whisper-
+
+      - name: Install smart subtitle dependencies
+        if: steps.features.outputs.smart_sub == 'true'
+        run: pip install -r requirements-smart.txt
 
       - name: Render job from R2
         run: python scripts/render_from_job.py "${{ inputs.job_key }}"
