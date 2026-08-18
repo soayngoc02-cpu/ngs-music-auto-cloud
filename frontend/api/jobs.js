@@ -19,6 +19,8 @@ const SUBTITLE_STYLES = new Set([
 const SUBTITLE_ANIMATIONS = new Set(['fade', 'pop', 'slide_up', 'pulse', 'none']);
 const SUBTITLE_POSITIONS = new Set(['top', 'center', 'bottom']);
 const SUBTITLE_SIZES = new Set(['medium', 'large', 'xlarge']);
+const SUBTITLE_SYNC_MODES = new Set(['smart', 'timed', 'basic']);
+const SUBTITLE_MODELS = new Set(['base', 'small']);
 
 async function triggerWorkflow(jobKey) {
   const token = required('GITHUB_ACTIONS_TOKEN');
@@ -109,6 +111,14 @@ module.exports = async function handler(req, res) {
     let subtitleSize = String(subtitleInput.size || 'large').toLowerCase();
     if (!SUBTITLE_SIZES.has(subtitleSize)) subtitleSize = 'large';
     const subtitleMaxLines = Math.max(1, Math.min(3, Number(subtitleInput.max_lines || 2)));
+    let subtitleSyncMode = String(subtitleInput.sync_mode || 'smart').toLowerCase();
+    if (!SUBTITLE_SYNC_MODES.has(subtitleSyncMode)) subtitleSyncMode = 'smart';
+    let subtitleModel = String(subtitleInput.model || 'small').toLowerCase();
+    if (!SUBTITLE_MODELS.has(subtitleModel)) subtitleModel = 'small';
+    const subtitleLanguage = String(subtitleInput.language || 'vi').toLowerCase() || 'vi';
+    let subtitleMinConfidence = Number(subtitleInput.min_confidence ?? 0.38);
+    if (!Number.isFinite(subtitleMinConfidence)) subtitleMinConfidence = 0.38;
+    subtitleMinConfidence = Math.max(0.15, Math.min(0.90, subtitleMinConfidence));
 
     const job = {
       job_id: jobId,
@@ -142,6 +152,10 @@ module.exports = async function handler(req, res) {
         position: subtitlePosition,
         size: subtitleSize,
         max_lines: subtitleMaxLines,
+        sync_mode: subtitleSyncMode,
+        language: subtitleLanguage,
+        model: subtitleModel,
+        min_confidence: subtitleMinConfidence,
       },
       requested_width: width,
       requested_height: height,
