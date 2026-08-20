@@ -44,13 +44,13 @@
         <div class="panel create-panel">
           <div class="eyebrow">ONE-CLICK FACTORY</div>
           <h2>Từ ý tưởng thành video hoàn chỉnh.</h2>
-          <p class="muted">Copilot ưu tiên → Gemini/OpenAI fallback khi được bật → Cloudflare FLUX tạo ảnh → FFmpeg dựng & QA.</p>
+          <p class="muted">Cloudflare AI lập kế hoạch → FLUX tạo ảnh → thư viện nhạc → FFmpeg dựng & QA. Gemini/OpenAI chỉ dùng khi Premium fallback được bật.</p>
           <label>Ý tưởng <span class="optional">(để trống = AI tự nghĩ)</span><textarea id="idea" rows="5" placeholder="Ví dụ: một câu chuyện tình buồn về người đến sau..."></textarea></label>
           <div class="row2"><label>Thời lượng<select id="duration"><option>15</option><option selected>20</option><option>30</option><option>45</option><option>60</option></select></label><label>Nhạc<select id="musicMode"><option value="auto">AI tự chọn trong thư viện</option><option value="manual">Chọn nhạc sau</option></select></label></div>
           <button id="createBtn" class="primary hero-btn">✦ TẠO VIDEO</button>
-          <div class="cost-lock"><span>🛡</span><div><b>FREE FIRST</b><small>Gemini/OpenAI chỉ được gọi khi Premium fallback được bật.</small></div></div>
+          <div class="cost-lock"><span>🛡</span><div><b>FREE FIRST</b><small>Cloudflare AI là mặc định. Gemini/OpenAI chỉ được gọi khi Premium fallback được bật.</small></div></div>
         </div>
-        <div class="panel live-panel"><div class="panel-head"><b>Pipeline</b><span id="providerState" class="badge soft">đang kiểm tra...</span></div><div class="pipeline" id="pipeline"><div><span>1</span><b>Ý tưởng</b><small>Copilot/AI</small></div><div><span>2</span><b>Visual</b><small>Cloudflare/AI</small></div><div><span>3</span><b>Nhạc</b><small>Library</small></div><div><span>4</span><b>Motion</b><small>Director</small></div><div><span>5</span><b>Render</b><small>FFmpeg</small></div></div><div id="liveProject" class="live-card empty"><div class="big-icon">✦</div><b>Chưa có job đang chạy</b><small>Bấm TẠO VIDEO để bắt đầu.</small></div></div>
+        <div class="panel live-panel"><div class="panel-head"><b>Pipeline</b><span id="providerState" class="badge soft">đang kiểm tra...</span></div><div class="pipeline" id="pipeline"><div><span>1</span><b>Ý tưởng</b><small>Cloudflare AI</small></div><div><span>2</span><b>Visual</b><small>FLUX</small></div><div><span>3</span><b>Nhạc</b><small>Library</small></div><div><span>4</span><b>Motion</b><small>Director</small></div><div><span>5</span><b>Render</b><small>FFmpeg</small></div></div><div id="liveProject" class="live-card empty"><div class="big-icon">✦</div><b>Chưa có job đang chạy</b><small>Bấm TẠO VIDEO để bắt đầu.</small></div></div>
       </div>
     </section>
     <section id="view-projects" class="view"><div class="section-head"><div><div class="eyebrow">HISTORY</div><h2>Projects</h2></div><button id="refreshProjects" class="ghost">Làm mới</button></div><div id="projectsList" class="cards"></div></section>
@@ -59,19 +59,19 @@
     <section id="view-settings" class="view admin-only">
       <div class="section-head"><div><div class="eyebrow">PROVIDERS</div><h2>Hệ thống</h2></div></div>
       <div class="settings-grid">
-        <div class="panel">
-          <h3>GitHub Copilot — Quản đốc</h3>
-          <p class="muted">OAuth chính thức. Kết nối GitHub chưa đồng nghĩa policy Copilot cho phép SDK chạy.</p>
+        <div class="panel" style="display:none">
+          <h3>GitHub Copilot — đã tắt</h3>
+          <p class="muted">GitHub đang trả 403 policy nên Copilot đã được gỡ khỏi pipeline. Các phần tử dưới đây giữ ẩn để tương thích dữ liệu cũ.</p>
           <div class="provider-connect">
-            <div><span id="copilotStatusDot" class="status-dot"></span><b id="copilotStatusText">Chưa kết nối</b><small id="copilotStatusSub" class="muted">Bấm kết nối để đăng nhập GitHub.</small></div>
+            <div><span id="copilotStatusDot" class="status-dot"></span><b id="copilotStatusText">Đã tắt</b><small id="copilotStatusSub" class="muted">Không dùng trong pipeline.</small></div>
             <div class="actions"><button id="copilotConnectBtn" class="primary" type="button">Kết nối GitHub Copilot</button><button id="copilotTestBtn" class="ghost" type="button">Kiểm tra Copilot</button><button id="copilotDisconnectBtn" class="ghost danger hidden" type="button">Ngắt kết nối</button></div>
           </div>
           <label>Model<input id="copilotModel" placeholder="gpt-5.4" /></label>
           <div id="copilotTestMsg" class="msg"></div>
         </div>
-        <div class="panel"><h3>Cloudflare Workers AI — Thợ vẽ</h3><p class="muted">Mặc định dùng FLUX.1 schnell. Hỏng/hết quota mới chuyển sang premium nếu được bật.</p><label>Account ID<input id="cfAccount" type="password" placeholder="Để trống nếu không đổi" /></label><label>API token<input id="cfToken" type="password" placeholder="Để trống nếu không đổi" /></label><label>Giới hạn ảnh/ngày<input id="dailyLimit" type="number" min="1" max="100" value="20" /></label></div>
+        <div class="panel"><h3>Cloudflare Workers AI — Quản đốc + Thợ vẽ</h3><p class="muted">Llama 8B Fast lập kế hoạch; nếu chậm sẽ thử Llama 3B. FLUX.1 schnell tạo ảnh. Tất cả request đều có timeout, không đứng vô hạn.</p><label>Account ID<input id="cfAccount" type="password" placeholder="Để trống nếu không đổi" /></label><label>API token<input id="cfToken" type="password" placeholder="Để trống nếu không đổi" /></label><label>Giới hạn ảnh/ngày<input id="dailyLimit" type="number" min="1" max="100" value="20" /></label></div>
         <div class="panel"><h3>Tài khoản chủ</h3><label>Đổi email<input id="profileEmail" type="email" /></label><label>Đổi mật khẩu<input id="profilePassword" type="password" placeholder="ít nhất 10 ký tự" /></label><button id="saveProfile" class="ghost">Cập nhật tài khoản</button></div>
-        <div class="panel danger-lite"><h3>Premium fallback</h3><div class="switch-row"><div><b>Gemini / OpenAI</b><small>Chỉ bật khi muốn cho phép app phát sinh chi phí API.</small></div><label class="switch"><input id="premiumFallback" type="checkbox" /><span></span></label></div><p class="muted">Thứ tự: Copilot → Gemini → OpenAI. Ảnh: Cloudflare → Gemini Image → OpenAI Image.</p></div>
+        <div class="panel danger-lite"><h3>Premium fallback</h3><div class="switch-row"><div><b>Gemini / OpenAI</b><small>Chỉ bật khi muốn cho phép app phát sinh chi phí API.</small></div><label class="switch"><input id="premiumFallback" type="checkbox" /><span></span></label></div><p class="muted">Thứ tự planner: Cloudflare AI → Gemini → OpenAI → kế hoạch cứu hộ local. Ảnh: Cloudflare FLUX → Gemini Image → OpenAI Image.</p></div>
         <div id="premiumConfig" class="panel premium-config hidden">
           <div class="premium-head"><div><div class="eyebrow">PAID FALLBACK</div><h3>API dự phòng</h3><p class="muted">Key được mã hóa trong database. Để trống ô key nếu không muốn thay key đã lưu.</p></div><span class="badge">Chỉ dùng khi fallback ON</span></div>
           <div class="provider-grid">
