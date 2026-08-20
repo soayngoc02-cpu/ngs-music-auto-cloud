@@ -11,8 +11,13 @@
   <div class="auth-card">
     <div class="brand-mark">NGS</div>
     <h1>NGS Music Studio</h1>
-    <p>Nhà máy video AI — Free First.</p>
-    <form id="loginForm">
+    <p id="authSubtitle">Nhà máy video AI — Free First.</p>
+    <form id="setupForm" class="hidden">
+      <label>Email chủ sở hữu<input id="setupEmail" type="email" autocomplete="username" required /></label>
+      <label>Mật khẩu chủ sở hữu<input id="setupPassword" type="password" minlength="10" autocomplete="new-password" required /></label>
+      <button class="primary full" type="submit">Tạo tài khoản SUPER_ADMIN</button>
+    </form>
+    <form id="loginForm" class="hidden">
       <label>Email<input id="loginEmail" type="email" autocomplete="username" required /></label>
       <label>Mật khẩu<input id="loginPassword" type="password" autocomplete="current-password" required /></label>
       <button class="primary full" type="submit">Đăng nhập</button>
@@ -20,7 +25,6 @@
     <div id="loginMsg" class="msg"></div>
   </div>
 </div>
-
 <div id="app" class="hidden">
   <header class="topbar">
     <div class="brand"><span class="brand-dot"></span><b>NGS MUSIC STUDIO</b><span class="version">V7</span></div>
@@ -33,7 +37,6 @@
     </nav>
     <div class="account"><span id="roleBadge" class="badge"></span><span id="who"></span><button id="logoutBtn" class="ghost small">Thoát</button></div>
   </header>
-
   <main>
     <section id="view-create" class="view active">
       <div class="workspace-grid">
@@ -41,72 +44,18 @@
           <div class="eyebrow">ONE-CLICK FACTORY</div>
           <h2>Từ ý tưởng thành video hoàn chỉnh.</h2>
           <p class="muted">Copilot lập kế hoạch → Cloudflare FLUX tạo ảnh → FFmpeg dựng & QA.</p>
-          <label>Ý tưởng <span class="optional">(để trống = AI tự nghĩ)</span>
-            <textarea id="idea" rows="5" placeholder="Ví dụ: một câu chuyện tình buồn về người đến sau..."></textarea>
-          </label>
-          <div class="row2">
-            <label>Thời lượng<select id="duration"><option>15</option><option selected>20</option><option>30</option><option>45</option><option>60</option></select></label>
-            <label>Nhạc<select id="musicMode"><option value="auto">AI tự chọn trong thư viện</option><option value="manual">Chọn nhạc sau</option></select></label>
-          </div>
+          <label>Ý tưởng <span class="optional">(để trống = AI tự nghĩ)</span><textarea id="idea" rows="5" placeholder="Ví dụ: một câu chuyện tình buồn về người đến sau..."></textarea></label>
+          <div class="row2"><label>Thời lượng<select id="duration"><option>15</option><option selected>20</option><option>30</option><option>45</option><option>60</option></select></label><label>Nhạc<select id="musicMode"><option value="auto">AI tự chọn trong thư viện</option><option value="manual">Chọn nhạc sau</option></select></label></div>
           <button id="createBtn" class="primary hero-btn">✦ TẠO VIDEO</button>
           <div class="cost-lock"><span>🛡</span><div><b>FREE FIRST đang bật</b><small>Không gọi Gemini/OpenAI trả phí. Hết quota thì dừng.</small></div></div>
         </div>
-        <div class="panel live-panel">
-          <div class="panel-head"><b>Pipeline</b><span id="providerState" class="badge soft">đang kiểm tra...</span></div>
-          <div class="pipeline" id="pipeline">
-            <div><span>1</span><b>Ý tưởng</b><small>Copilot</small></div>
-            <div><span>2</span><b>Visual</b><small>Cloudflare</small></div>
-            <div><span>3</span><b>Nhạc</b><small>Library</small></div>
-            <div><span>4</span><b>Motion</b><small>Director</small></div>
-            <div><span>5</span><b>Render</b><small>FFmpeg</small></div>
-          </div>
-          <div id="liveProject" class="live-card empty"><div class="big-icon">✦</div><b>Chưa có job đang chạy</b><small>Bấm TẠO VIDEO để bắt đầu.</small></div>
-        </div>
+        <div class="panel live-panel"><div class="panel-head"><b>Pipeline</b><span id="providerState" class="badge soft">đang kiểm tra...</span></div><div class="pipeline" id="pipeline"><div><span>1</span><b>Ý tưởng</b><small>Copilot</small></div><div><span>2</span><b>Visual</b><small>Cloudflare</small></div><div><span>3</span><b>Nhạc</b><small>Library</small></div><div><span>4</span><b>Motion</b><small>Director</small></div><div><span>5</span><b>Render</b><small>FFmpeg</small></div></div><div id="liveProject" class="live-card empty"><div class="big-icon">✦</div><b>Chưa có job đang chạy</b><small>Bấm TẠO VIDEO để bắt đầu.</small></div></div>
       </div>
     </section>
-
-    <section id="view-projects" class="view">
-      <div class="section-head"><div><div class="eyebrow">HISTORY</div><h2>Projects</h2></div><button id="refreshProjects" class="ghost">Làm mới</button></div>
-      <div id="projectsList" class="cards"></div>
-    </section>
-
-    <section id="view-media" class="view">
-      <div class="section-head"><div><div class="eyebrow">CLOUD LIBRARY</div><h2>Thư viện media</h2></div></div>
-      <div class="panel upload-panel">
-        <div class="row3">
-          <label>Loại<select id="mediaKind"><option value="music">Nhạc</option><option value="logo">Logo</option><option value="image">Ảnh</option></select></label>
-          <label class="file-label">File<input id="mediaFile" type="file" /></label>
-          <button id="uploadBtn" class="primary">Upload</button>
-        </div>
-        <div id="uploadMsg" class="msg"></div>
-      </div>
-      <div id="mediaList" class="media-grid"></div>
-    </section>
-
-    <section id="view-users" class="view admin-only">
-      <div class="section-head"><div><div class="eyebrow">SUPER ADMIN</div><h2>Quản lý user</h2></div></div>
-      <div class="panel compact">
-        <div class="row4">
-          <label>Email<input id="newUserEmail" type="email" placeholder="user@example.com" /></label>
-          <label>Mật khẩu<input id="newUserPass" type="password" placeholder="ít nhất 10 ký tự" /></label>
-          <label>Quyền<select id="newUserRole"><option value="USER">USER</option><option value="ADMIN">ADMIN</option></select></label>
-          <button id="addUserBtn" class="primary">Tạo user</button>
-        </div>
-        <div id="userMsg" class="msg"></div>
-      </div>
-      <div class="table-wrap"><table><thead><tr><th>Email</th><th>Role</th><th>Trạng thái</th><th>Ngày tạo</th><th></th></tr></thead><tbody id="usersBody"></tbody></table></div>
-    </section>
-
-    <section id="view-settings" class="view admin-only">
-      <div class="section-head"><div><div class="eyebrow">PROVIDERS</div><h2>Hệ thống</h2></div></div>
-      <div class="settings-grid">
-        <div class="panel"><h3>GitHub Copilot — Quản đốc</h3><p class="muted">Fine-grained token có quyền <b>Copilot Requests</b>. Token được mã hóa trong database.</p><label>Copilot token<input id="copilotToken" type="password" placeholder="Để trống nếu không đổi" /></label><label>Model<input id="copilotModel" placeholder="gpt-5" /></label></div>
-        <div class="panel"><h3>Cloudflare Workers AI — Thợ vẽ</h3><p class="muted">Mặc định dùng FLUX.1 schnell. Không tự gọi provider trả phí.</p><label>Account ID<input id="cfAccount" type="password" placeholder="Để trống nếu không đổi" /></label><label>API token<input id="cfToken" type="password" placeholder="Để trống nếu không đổi" /></label><label>Giới hạn ảnh/ngày<input id="dailyLimit" type="number" min="1" max="100" value="20" /></label></div>
-        <div class="panel"><h3>Tài khoản chủ</h3><label>Đổi email<input id="profileEmail" type="email" /></label><label>Đổi mật khẩu<input id="profilePassword" type="password" placeholder="ít nhất 10 ký tự" /></label><button id="saveProfile" class="ghost">Cập nhật tài khoản</button></div>
-        <div class="panel danger-lite"><h3>Premium fallback</h3><div class="switch-row"><div><b>Gemini / OpenAI</b><small>Tắt mặc định để không phát sinh tiền.</small></div><label class="switch"><input id="premiumFallback" type="checkbox" /><span></span></label></div></div>
-      </div>
-      <button id="saveSettings" class="primary">Lưu cấu hình</button><div id="settingsMsg" class="msg"></div>
-    </section>
+    <section id="view-projects" class="view"><div class="section-head"><div><div class="eyebrow">HISTORY</div><h2>Projects</h2></div><button id="refreshProjects" class="ghost">Làm mới</button></div><div id="projectsList" class="cards"></div></section>
+    <section id="view-media" class="view"><div class="section-head"><div><div class="eyebrow">CLOUD LIBRARY</div><h2>Thư viện media</h2></div></div><div class="panel upload-panel"><div class="row3"><label>Loại<select id="mediaKind"><option value="music">Nhạc</option><option value="logo">Logo</option><option value="image">Ảnh</option></select></label><label class="file-label">File<input id="mediaFile" type="file" /></label><button id="uploadBtn" class="primary">Upload</button></div><div id="uploadMsg" class="msg"></div></div><div id="mediaList" class="media-grid"></div></section>
+    <section id="view-users" class="view admin-only"><div class="section-head"><div><div class="eyebrow">SUPER ADMIN</div><h2>Quản lý user</h2></div></div><div class="panel compact"><div class="row4"><label>Email<input id="newUserEmail" type="email" placeholder="user@example.com" /></label><label>Mật khẩu<input id="newUserPass" type="password" placeholder="ít nhất 10 ký tự" /></label><label>Quyền<select id="newUserRole"><option value="USER">USER</option><option value="ADMIN">ADMIN</option></select></label><button id="addUserBtn" class="primary">Tạo user</button></div><div id="userMsg" class="msg"></div></div><div class="table-wrap"><table><thead><tr><th>Email</th><th>Role</th><th>Trạng thái</th><th>Ngày tạo</th><th></th></tr></thead><tbody id="usersBody"></tbody></table></div></section>
+    <section id="view-settings" class="view admin-only"><div class="section-head"><div><div class="eyebrow">PROVIDERS</div><h2>Hệ thống</h2></div></div><div class="settings-grid"><div class="panel"><h3>GitHub Copilot — Quản đốc</h3><p class="muted">Token được mã hóa trong database.</p><label>Copilot token<input id="copilotToken" type="password" placeholder="Để trống nếu không đổi" /></label><label>Model<input id="copilotModel" placeholder="gpt-5" /></label></div><div class="panel"><h3>Cloudflare Workers AI — Thợ vẽ</h3><p class="muted">Mặc định dùng FLUX.1 schnell. Không tự gọi provider trả phí.</p><label>Account ID<input id="cfAccount" type="password" placeholder="Để trống nếu không đổi" /></label><label>API token<input id="cfToken" type="password" placeholder="Để trống nếu không đổi" /></label><label>Giới hạn ảnh/ngày<input id="dailyLimit" type="number" min="1" max="100" value="20" /></label></div><div class="panel"><h3>Tài khoản chủ</h3><label>Đổi email<input id="profileEmail" type="email" /></label><label>Đổi mật khẩu<input id="profilePassword" type="password" placeholder="ít nhất 10 ký tự" /></label><button id="saveProfile" class="ghost">Cập nhật tài khoản</button></div><div class="panel danger-lite"><h3>Premium fallback</h3><div class="switch-row"><div><b>Gemini / OpenAI</b><small>Tắt mặc định để không phát sinh tiền.</small></div><label class="switch"><input id="premiumFallback" type="checkbox" /><span></span></label></div></div></div><button id="saveSettings" class="primary">Lưu cấu hình</button><div id="settingsMsg" class="msg"></div></section>
   </main>
 </div>
 <script src="/app.js"></script>
