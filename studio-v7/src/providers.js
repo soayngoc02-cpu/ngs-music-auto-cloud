@@ -1,11 +1,49 @@
 import crypto from 'crypto';
 import {getSetting,setSetting,q,newid} from './db.js';
 
-function stripJson(text){
-  const s=String(text||'').trim().replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();
+function stripJson(value){
+  if(value&&typeof value==='object'&&!Array.isArray(value))return value;
+  const raw=String(value||'').trim();
+  if(!raw)throw new Error('AI không trả dữ liệu kế hoạch');
+  try{const direct=JSON.parse(raw);if(direct&&typeof direct==='object')return direct}catch{}
+  const s=raw.replace(/^```(?:json)?\s*/i,'').replace(/```\s*$/,'').trim();
+  try{const direct=JSON.parse(s);if(direct&&typeof direct==='object')return direct}catch{}
   const a=s.indexOf('{'),b=s.lastIndexOf('}');
-  if(a<0||b<a)throw new Error('AI không trả JSON hợp lệ');
-  return JSON.parse(s.slice(a,b+1));
+  if(a<0||b<a)throw new Error(`AI không trả JSON hợp lệ: ${s.slice(0,140)}`);
+  try{return JSON.parse(s.slice(a,b+1))}catch(e){throw new Error(`JSON AI bị lỗi cú pháp: ${e.message}`)}
+}
+
+const PLAN_SCHEMA={
+  type:'object',
+  properties:{
+    title:{type:'string'},
+    hook:{type:'string'},
+    caption:{type:'string'},
+    musicId:{anyOf:[{type:'string'},{type:'null'}]},
+    musicReason:{type:'string'},
+    style:{type:'string',enum:['cinematic','emotional','minimal','energetic']},
+    scenes:{type:'array',minItems:3,maxItems:6,items:{type:'object',properties:{duration:{type:'number'},text:{type:'string'},imagePrompt:{type:'string'},motion:{type:'string',enum:['slow_push','pan_left','pan_right','pull_out']},effect:{type:'string',enum:['grain','glow','light_leak','none']}},required:['duration','text','imagePrompt','motion','effect']}}
+  },
+  required:['title','hook','caption','musicId','musicReason','style','scenes']
+};
+
+function normalizePlan(input){
+  const p=stripJson(input);
+  if(!Array.isArray(p.scenes)||p.scenes.length<1)throw new Error('AI plan không có scenes');
+  p.title=String(p.title||'Video mới');
+  p.hook=String(p.hook||'');
+  p.caption=String(p.caption||'');
+  p.musicId=p.musicId==null?null:String(p.musicId);
+  p.musicReason=String(p.musicReason||'');
+  p.style=['cinematic','emotional','minimal','energetic'].includes(p.style)?p.style:'cinematic';
+  p.scenes=p.scenes.slice(0,6).map((s,i)=>({
+    duration:Math.max(1,Number(s?.duration)||4),
+    text:String(s?.text||''),
+    imagePrompt:String(s?.imagePrompt||s?.image_prompt||`cinematic music visual scene ${i+1}, vertical 9:16, no text, no watermark`),
+    motion:['slow_push','pan_left','pan_right','pull_out'].includes(s?.motion)?s.motion:'slow_push',
+    effect:['grain','glow','light_leak','none'].includes(s?.effect)?s.effect:'none'
+  }));
+  return p;
 }
 
 function planPrompt(project,recent,music){
@@ -59,7 +97,7 @@ export async function copilotPlan(project,recent,music){
     const ev=await session.sendAndWait({prompt:planPrompt(project,recent,music)},120000);
     if(!ev)throw new Error('Copilot không phản hồi');
     await markCopilot('ok','');
-    return stripJson(ev.data.content);
+    return normalizePlan(ev.data.content);
   }catch(e){
     await markCopilot(isPolicyError(e)?'blocked':'error',errText(e));
     throw e;
@@ -71,23 +109,39 @@ async function cloudflarePlan(project,recent,music){
   if(!account||!token)throw new Error('Chưa cấu hình Cloudflare Workers AI');
   const model=(await getSetting('cf_text_model'))||'@cf/meta/llama-3.3-70b-instruct-fp8-fast';
   const url=`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(account)}/ai/run/${model}`;
-  const resp=await fetch(url,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'system',content:'You are the creative director and production planner for NGS Music Studio. Return only valid JSON, never markdown.'},{role:'user',content:planPrompt(project,recent,music)}],max_tokens:2400,temperature:0.65})});
+  const payload={
+    messages:[
+      {role:'system',content:'You are the creative director and production planner for NGS Music Studio. Follow the JSON schema exactly. Do not output markdown or commentary.'},
+      {role:'user',content:planPrompt(project,recent,music)}
+    ],
+    response_format:{type:'json_schema',json_schema:PLAN_SCHEMA},
+    max_tokens:2400,
+    temperature:0.35
+  };
+  const resp=await fetch(url,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify(payload)});
   const data=await resp.json().catch(()=>({}));
   if(!resp.ok||data?.success===false)throw new Error(`Cloudflare Text lỗi ${resp.status}: ${data?.errors?.[0]?.message||data?.error||JSON.stringify(data).slice(0,300)}`);
-  const text=data?.result?.response||data?.response||data?.result?.text||'';
-  return stripJson(text);
+  const raw=data?.result?.response??data?.response??data?.result?.text??data?.result;
+  try{return normalizePlan(raw)}catch(firstErr){
+    const retryPayload={...payload,temperature:0,messages:[{role:'system',content:'Return ONLY one valid JSON object matching the schema. No prose, no markdown.'},{role:'user',content:planPrompt(project,recent,music)}]};
+    const retry=await fetch(url,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify(retryPayload)});
+    const retryData=await retry.json().catch(()=>({}));
+    if(!retry.ok||retryData?.success===false)throw firstErr;
+    const retryRaw=retryData?.result?.response??retryData?.response??retryData?.result?.text??retryData?.result;
+    return normalizePlan(retryRaw);
+  }
 }
 
 async function geminiPlan(project,recent,music){
   const key=await getSetting('gemini_api_key'),model=(await getSetting('gemini_text_model'))||'gemini-3.7-flash';if(!key)throw new Error('Chưa cấu hình Gemini API key');
   const resp=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,{method:'POST',headers:{'x-goog-api-key':key,'Content-Type':'application/json'},body:JSON.stringify({contents:[{role:'user',parts:[{text:planPrompt(project,recent,music)}]}],generationConfig:{responseMimeType:'application/json'}})});
-  const data=await resp.json().catch(()=>({}));if(!resp.ok)throw new Error(`Gemini lỗi ${resp.status}: ${data?.error?.message||JSON.stringify(data).slice(0,300)}`);const text=data?.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('')||'';return stripJson(text);
+  const data=await resp.json().catch(()=>({}));if(!resp.ok)throw new Error(`Gemini lỗi ${resp.status}: ${data?.error?.message||JSON.stringify(data).slice(0,300)}`);const text=data?.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('')||'';return normalizePlan(text);
 }
 
 async function openaiPlan(project,recent,music){
   const key=await getSetting('openai_api_key'),model=(await getSetting('openai_text_model'))||'gpt-5.6-luna';if(!key)throw new Error('Chưa cấu hình OpenAI API key');
   const resp=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/json'},body:JSON.stringify({model,messages:[{role:'user',content:planPrompt(project,recent,music)}],response_format:{type:'json_object'}})});
-  const data=await resp.json().catch(()=>({}));if(!resp.ok)throw new Error(`OpenAI lỗi ${resp.status}: ${data?.error?.message||JSON.stringify(data).slice(0,300)}`);return stripJson(data?.choices?.[0]?.message?.content||'');
+  const data=await resp.json().catch(()=>({}));if(!resp.ok)throw new Error(`OpenAI lỗi ${resp.status}: ${data?.error?.message||JSON.stringify(data).slice(0,300)}`);return normalizePlan(data?.choices?.[0]?.message?.content||'');
 }
 
 export async function planWithFallback(project,recent,music){
