@@ -14,7 +14,7 @@ function stylePrompt(prompt,style='realistic'){
   if(style==='illustration'){
     return `Cinematic editorial illustration, emotionally expressive composition, sophisticated contemporary visual storytelling, vertical 9:16. ${base}. No text, no watermark.`.slice(0,3000);
   }
-  return `PHOTOREALISTIC REAL-LIFE CINEMATIC PHOTOGRAPH. This must look like a genuine camera photo, NOT artwork. Use real adult Vietnamese or Asian people when people appear; natural human anatomy; believable facial proportions; realistic skin texture and pores; real hair; realistic eyes and hands; natural clothing; physically plausible environment; cinematic but realistic lighting; DSLR/photojournalistic photography; shallow depth of field only when appropriate; contemporary Vietnam/Asian atmosphere when relevant; vertical 9:16. Absolutely NO anime, NO cartoon, NO illustration, NO painting, NO digital art, NO 3D render, NO CGI, NO game art, NO doll-like face, NO comic style, NO vector art. ${base}. No text, no watermark.`.slice(0,3000);
+  return `PHOTOREALISTIC REAL-LIFE CINEMATIC PHOTOGRAPH. This must look like a genuine camera photo, NOT artwork. Use real adult Vietnamese or Asian people when people appear; natural human anatomy; believable facial proportions; realistic skin texture and pores; real hair; realistic eyes and hands; natural clothing; physically plausible environment; cinematic but realistic lighting; DSLR/photojournalistic photography; contemporary Vietnam/Asian atmosphere when relevant; vertical 9:16. Absolutely NO anime, NO cartoon, NO illustration, NO painting, NO digital art, NO 3D render, NO CGI, NO game art, NO doll-like face, NO comic style, NO vector art. ${base}. No text, no watermark.`.slice(0,3000);
 }
 
 export async function planWithFallback(project,recent,music){
@@ -35,52 +35,88 @@ async function fetchTimed(url,options={},timeoutMs=60000){
   finally{clearTimeout(timer)}
 }
 
-function cloudflareErrorText(raw,status){
+function cloudflareErrorText(raw,status,model='Image AI'){
   try{
     const j=JSON.parse(raw);
     const msg=j?.errors?.[0]?.message||j?.error||j?.message;
-    if(msg)return `Cloudflare FLUX ${status}: ${msg}`;
+    if(msg)return `${model} ${status}: ${msg}`;
   }catch{}
-  return `Cloudflare FLUX ${status}: ${String(raw||'Lỗi không xác định').slice(0,180)}`;
+  return `${model} ${status}: ${String(raw||'Lỗi không xác định').slice(0,180)}`;
+}
+
+function negativePrompt(){
+  return 'anime, cartoon, illustration, painting, digital art, CGI, 3D render, doll, plastic skin, waxy skin, deformed face, malformed hands, extra fingers, missing fingers, duplicate person, bad anatomy, unrealistic eyes, oversaturated, low resolution, blurry, text, caption, watermark, logo';
+}
+
+async function parseCloudflareImageResponse(resp,label){
+  const ct=String(resp.headers.get('content-type')||'').toLowerCase();
+  if(ct.includes('json')){
+    const j=await resp.json();
+    const b64=j?.result?.image||j?.image||(typeof j?.result==='string'?j.result:null);
+    if(!b64)throw new Error(`${label} không trả dữ liệu ảnh`);
+    return{buffer:Buffer.from(b64,'base64'),mime:'image/jpeg'};
+  }
+  const buffer=Buffer.from(await resp.arrayBuffer());
+  if(!buffer.length)throw new Error(`${label} trả ảnh rỗng`);
+  return{buffer,mime:ct.split(';')[0]||'image/jpeg'};
+}
+
+async function ensureCloudflareQuota(){
+  const today=new Date().toISOString().slice(0,10);
+  const limit=Number((await getSetting('image_daily_limit'))||20);
+  const usage=Number((await q("select count(*)::int c from media where kind='image' and meta->>'generatedBy' like 'cloudflare%' and created_at::date=$1::date",[today])).rows[0].c);
+  if(usage>=limit)throw new Error(`Đã chạm giới hạn ảnh hôm nay (${limit})`);
+}
+
+async function cloudflarePhoenix(prompt){
+  const account=await getSetting('cf_account_id'),token=await getSetting('cf_api_token');
+  if(!account||!token)throw new Error('Chưa cấu hình Cloudflare Workers AI');
+  await ensureCloudflareQuota();
+  const url=`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(account)}/ai/run/@cf/leonardo/phoenix-1.0`;
+  const resp=await fetchTimed(url,{
+    method:'POST',
+    headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},
+    body:JSON.stringify({
+      prompt,
+      negative_prompt:negativePrompt(),
+      width:512,
+      height:912,
+      num_steps:20,
+      guidance:4
+    })
+  },90000);
+  if(!resp.ok){const raw=await resp.text();throw new Error(cloudflareErrorText(raw,resp.status,'Leonardo Phoenix'))}
+  const out=await parseCloudflareImageResponse(resp,'Leonardo Phoenix');
+  return{...out,provider:'cloudflare-phoenix'};
+}
+
+async function cloudflareDreamShaper(prompt){
+  const account=await getSetting('cf_account_id'),token=await getSetting('cf_api_token');
+  if(!account||!token)throw new Error('Chưa cấu hình Cloudflare Workers AI');
+  await ensureCloudflareQuota();
+  const url=`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(account)}/ai/run/@cf/lykon/dreamshaper-8-lcm`;
+  const resp=await fetchTimed(url,{
+    method:'POST',
+    headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},
+    body:JSON.stringify({
+      prompt,
+      negative_prompt:negativePrompt(),
+      width:512,
+      height:912,
+      num_steps:8,
+      guidance:7
+    })
+  },75000);
+  if(!resp.ok){const raw=await resp.text();throw new Error(cloudflareErrorText(raw,resp.status,'DreamShaper'))}
+  const out=await parseCloudflareImageResponse(resp,'DreamShaper');
+  return{...out,provider:'cloudflare-dreamshaper'};
 }
 
 async function cloudflareImage(prompt){
-  const account=await getSetting('cf_account_id'),token=await getSetting('cf_api_token');
-  if(!account||!token)throw new Error('Chưa cấu hình Cloudflare Workers AI');
-
-  const today=new Date().toISOString().slice(0,10);
-  const limit=Number((await getSetting('image_daily_limit'))||20);
-  const usage=Number((await q("select count(*)::int c from media where kind='image' and meta->>'generatedBy'='cloudflare' and created_at::date=$1::date",[today])).rows[0].c);
-  if(usage>=limit)throw new Error(`Đã chạm giới hạn ảnh hôm nay (${limit})`);
-
-  const url=`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(account)}/ai/run/@cf/black-forest-labs/flux-1-schnell`;
-  let lastErr;
-  for(let attempt=0;attempt<2;attempt++){
-    try{
-      const resp=await fetchTimed(url,{
-        method:'POST',
-        headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},
-        body:JSON.stringify({prompt,steps:4})
-      },60000);
-
-      if(!resp.ok){
-        const raw=await resp.text();
-        throw new Error(cloudflareErrorText(raw,resp.status));
-      }
-
-      const ct=resp.headers.get('content-type')||'';
-      if(ct.includes('json')){
-        const j=await resp.json();
-        const b64=j?.result?.image||j?.image||(typeof j?.result==='string'?j.result:null);
-        if(!b64)throw new Error('Cloudflare FLUX không trả dữ liệu ảnh');
-        return{buffer:Buffer.from(b64,'base64'),mime:'image/jpeg',provider:'cloudflare'};
-      }
-      const buffer=Buffer.from(await resp.arrayBuffer());
-      if(!buffer.length)throw new Error('Cloudflare FLUX trả ảnh rỗng');
-      return{buffer,mime:ct.split(';')[0]||'image/jpeg',provider:'cloudflare'};
-    }catch(e){lastErr=e}
-  }
-  throw lastErr||new Error('Cloudflare FLUX lỗi');
+  const errors=[];
+  try{return await cloudflarePhoenix(prompt)}catch(e){errors.push(`Phoenix: ${errText(e)}`)}
+  try{return await cloudflareDreamShaper(prompt)}catch(e){errors.push(`DreamShaper: ${errText(e)}`)}
+  throw new Error(errors.join(' | '));
 }
 
 async function geminiImage(prompt){
