@@ -91,7 +91,8 @@ export async function renderProject(project,plan,musicId,onProgress=async()=>{})
         ? `z='if(eq(on,1),1.08,max(zoom-0.0007,1.0))'`
         : `z='min(zoom+0.0007,1.08)'`;
       const textFilter=String(s.text||'').trim()?`,ass=filename='${escFilterPath(ass)}'`:'';
-      const filter=`[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=28[bg];[0:v]scale=980:1680:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,zoompan=${zoom}:d=${frames}:s=1080x1920:fps=30${textFilter},fade=t=in:st=0:d=.18,fade=t=out:st=${Math.max(0,dur-.2)}:d=.2,format=yuv420p[v]`;
+      const fadeOutStart=Math.max(0,dur-0.20).toFixed(2);
+      const filter=`[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=28[bg];[0:v]scale=980:1680:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,zoompan=${zoom}:d=${frames}:s=1080x1920:fps=30${textFilter},fade=t=in:st=0:d=0.18,fade=t=out:st=${fadeOutStart}:d=0.20,format=yuv420p[v]`;
 
       await run(ff(),['-y','-loop','1','-t',String(dur),'-i',img,'-filter_complex',filter,'-map','[v]','-an','-r','30','-c:v','libx264','-preset','veryfast','-crf','21','-movflags','+faststart',out]);
       segs.push(out);
@@ -109,8 +110,8 @@ export async function renderProject(project,plan,musicId,onProgress=async()=>{})
       if(m){
         const mp=path.join(tmp,'music.bin');
         await fs.writeFile(mp,m.data);
-        const fo=Math.max(0,project.duration-1.2);
-        await run(ff(),['-y','-i',silent,'-stream_loop','-1','-i',mp,'-t',String(project.duration),'-map','0:v:0','-map','1:a:0','-c:v','copy','-c:a','aac','-b:a','192k','-af',`loudnorm=I=-14:TP=-1.5:LRA=11,afade=t=in:st=0:d=.5,afade=t=out:st=${fo}:d=1.2`,'-movflags','+faststart',final]);
+        const fo=Math.max(0,project.duration-1.2).toFixed(2);
+        await run(ff(),['-y','-i',silent,'-stream_loop','-1','-i',mp,'-t',String(project.duration),'-map','0:v:0','-map','1:a:0','-c:v','copy','-c:a','aac','-b:a','192k','-af',`loudnorm=I=-14:TP=-1.5:LRA=11,afade=t=in:st=0:d=0.50,afade=t=out:st=${fo}:d=1.20`,'-movflags','+faststart',final]);
       }else await fs.copyFile(silent,final);
     }else await fs.copyFile(silent,final);
 
