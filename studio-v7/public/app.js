@@ -1,39 +1,121 @@
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
-let me=null, activeProjectId=null, pollTimer=null, copilotAutoTesting=false;
-async function api(url,opt={}){const r=await fetch(url,{credentials:'include',headers:{...(opt.body instanceof FormData?{}:{'Content-Type':'application/json'}),...(opt.headers||{})},...opt});const ct=r.headers.get('content-type')||'';const data=ct.includes('json')?await r.json():await r.text();if(!r.ok)throw new Error(data?.error||String(data)||`HTTP ${r.status}`);return data}
+let me=null,activeProjectId=null,pollTimer=null,copilotAutoTesting=false;
+
+async function api(url,opt={}){
+  const r=await fetch(url,{credentials:'include',headers:{...(opt.body instanceof FormData?{}:{'Content-Type':'application/json'}),...(opt.headers||{})},...opt});
+  const ct=r.headers.get('content-type')||'';
+  const data=ct.includes('json')?await r.json():await r.text();
+  if(!r.ok)throw new Error(data?.error||String(data)||`HTTP ${r.status}`);
+  return data;
+}
 function esc(s=''){return String(s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]))}
 function fmtDate(s){try{return new Date(s).toLocaleString('vi-VN')}catch{return s}}
 function showLogin(setup=false){$('#login').classList.remove('hidden');$('#app').classList.add('hidden');$('#setupForm').classList.toggle('hidden',!setup);$('#loginForm').classList.toggle('hidden',setup);$('#authSubtitle').textContent=setup?'Lần đầu sử dụng — tạo tài khoản chủ SUPER_ADMIN.':'Nhà máy video AI — Free First.'}
 function showApp(){$('#login').classList.add('hidden');$('#app').classList.remove('hidden');$('#who').textContent=me.email;$('#roleBadge').textContent=me.role;$$('.admin-only').forEach(x=>x.classList.toggle('hidden',me.role!=='SUPER_ADMIN'))}
 function handleCopilotResult(){const u=new URL(location.href),s=u.searchParams.get('copilot');if(!s)return;showView('settings');if(s==='connected'){$('#settingsMsg').textContent='✓ GitHub đã kết nối. Đang kiểm tra quyền Copilot thực tế...';$('#settingsMsg').className='msg'}else{$('#settingsMsg').textContent=`Kết nối GitHub lỗi: ${u.searchParams.get('reason')||'Không xác định'}`;$('#settingsMsg').className='msg error'}u.searchParams.delete('copilot');u.searchParams.delete('reason');history.replaceState({},'',u.pathname+(u.search||'')+u.hash)}
+
 async function bootstrap(){try{const s=await api('/api/setup/status');if(s.needsSetup){showLogin(true);return}const d=await api('/api/me');me=d.user;showApp();await Promise.all([checkHealth(),loadProjects(),loadMedia()]);if(me.role==='SUPER_ADMIN'){await loadSettings();handleCopilotResult()}}catch{showLogin(false)}}
-$('#setupForm').addEventListener('submit',async e=>{e.preventDefault();$('#loginMsg').textContent='Đang tạo tài khoản chủ...';try{const d=await api('/api/setup',{method:'POST',body:JSON.stringify({email:$('#setupEmail').value,password:$('#setupPassword').value})});me=d.user;$('#loginMsg').textContent='';showApp();await Promise.all([checkHealth(),loadProjects(),loadMedia()]);await loadSettings()}catch(err){$('#loginMsg').textContent=err.message;$('#loginMsg').className='msg error'}})
-$('#loginForm').addEventListener('submit',async e=>{e.preventDefault();$('#loginMsg').textContent='Đang đăng nhập...';try{const d=await api('/api/auth/login',{method:'POST',body:JSON.stringify({email:$('#loginEmail').value,password:$('#loginPassword').value})});me=d.user;$('#loginMsg').textContent='';showApp();await Promise.all([checkHealth(),loadProjects(),loadMedia()]);if(me.role==='SUPER_ADMIN'){await loadSettings();handleCopilotResult()}}catch(err){$('#loginMsg').textContent=err.message;$('#loginMsg').className='msg error'}})
-$('#logoutBtn').onclick=async()=>{try{await api('/api/auth/logout',{method:'POST'})}catch{}location.reload()}
-$('#nav').addEventListener('click',e=>{const b=e.target.closest('button[data-view]');if(!b)return;showView(b.dataset.view)})
+
+$('#setupForm').addEventListener('submit',async e=>{e.preventDefault();$('#loginMsg').textContent='Đang tạo tài khoản chủ...';try{const d=await api('/api/setup',{method:'POST',body:JSON.stringify({email:$('#setupEmail').value,password:$('#setupPassword').value})});me=d.user;$('#loginMsg').textContent='';showApp();await Promise.all([checkHealth(),loadProjects(),loadMedia()]);await loadSettings()}catch(err){$('#loginMsg').textContent=err.message;$('#loginMsg').className='msg error'}});
+$('#loginForm').addEventListener('submit',async e=>{e.preventDefault();$('#loginMsg').textContent='Đang đăng nhập...';try{const d=await api('/api/auth/login',{method:'POST',body:JSON.stringify({email:$('#loginEmail').value,password:$('#loginPassword').value})});me=d.user;$('#loginMsg').textContent='';showApp();await Promise.all([checkHealth(),loadProjects(),loadMedia()]);if(me.role==='SUPER_ADMIN'){await loadSettings();handleCopilotResult()}}catch(err){$('#loginMsg').textContent=err.message;$('#loginMsg').className='msg error'}});
+$('#logoutBtn').onclick=async()=>{try{await api('/api/auth/logout',{method:'POST'})}catch{}location.reload()};
+$('#nav').addEventListener('click',e=>{const b=e.target.closest('button[data-view]');if(!b)return;showView(b.dataset.view)});
 function showView(v){$$('#nav button').forEach(x=>x.classList.toggle('active',x.dataset.view===v));$$('.view').forEach(x=>x.classList.remove('active'));$(`#view-${v}`).classList.add('active');if(v==='projects')loadProjects();if(v==='media')loadMedia();if(v==='users')loadUsers();if(v==='settings')loadSettings()}
-async function checkHealth(){try{const h=await api('/api/health'),p=h.providers||{},fallback=!!(p.premium&&(p.gemini||p.openai)),brain=!!(p.copilot||fallback),visual=!!(p.cloudflare||fallback),good=!!(h.db&&brain&&visual);let text;if(good&&p.copilot&&p.cloudflare)text='✓ Sẵn sàng';else if(good)text='✓ Sẵn sàng (fallback)';else text=`DB ${h.db?'✓':'×'} · Copilot ${p.copilot?'✓':p.copilotConnected?'!':'×'} · FLUX ${p.cloudflare?'✓':'×'} · Fallback ${fallback?'✓':'×'}`;$('#providerState').textContent=text;$('#providerState').style.color=good?'var(--cyan)':'var(--warn)'}catch(e){$('#providerState').textContent='Hệ thống lỗi'}}
-$('#createBtn').onclick=async()=>{const btn=$('#createBtn');btn.disabled=true;btn.textContent='ĐANG KHỞI TẠO...';try{const d=await api('/api/projects',{method:'POST',body:JSON.stringify({idea:$('#idea').value,duration:Number($('#duration').value),music_mode:$('#musicMode').value})});activeProjectId=d.project.id;renderLive({id:activeProjectId,status:'queued',progress:0,message:'Đã xếp hàng'});startPoll(activeProjectId);showView('create')}catch(e){alert(e.message)}finally{btn.disabled=false;btn.textContent='✦ TẠO VIDEO'}}
-function renderLive(p){const el=$('#liveProject');el.className='live-card active-job';el.innerHTML=`<div class="eyebrow">${esc(p.status||'')}</div><h3>${esc(p.title||'Đang sản xuất video')}</h3><p class="muted">${esc(p.message||'')}</p><div class="progress"><i style="width:${Number(p.progress||0)}%"></i></div><b>${Number(p.progress||0)}%</b>${p.error?`<p class="msg error">${esc(p.error)}</p>`:''}${p.output_media_id?`<video controls src="/api/media/${p.output_media_id}"></video><div class="actions"><a class="primary" href="/api/media/${p.output_media_id}" target="_blank">Mở video</a></div>`:''}`}
+
+async function checkHealth(){
+  try{
+    const h=await api('/api/health'),p=h.providers||{};
+    const paidFallback=!!(p.premium&&(p.gemini||p.openai));
+    const freeCloudflareBrain=!!p.cloudflareText;
+    const brain=!!(p.copilot||freeCloudflareBrain||paidFallback);
+    const visual=!!(p.cloudflare||paidFallback);
+    const good=!!(h.db&&brain&&visual);
+    let text;
+    if(good&&p.copilot&&p.cloudflare)text='✓ Sẵn sàng';
+    else if(good&&freeCloudflareBrain&&p.cloudflare)text='✓ Sẵn sàng · Cloudflare AI';
+    else if(good)text='✓ Sẵn sàng (fallback)';
+    else text=`DB ${h.db?'✓':'×'} · Copilot ${p.copilot?'✓':p.copilotConnected?'!':'×'} · Cloudflare ${p.cloudflare?'✓':'×'} · Premium ${paidFallback?'✓':'×'}`;
+    $('#providerState').textContent=text;
+    $('#providerState').style.color=good?'var(--cyan)':'var(--warn)';
+  }catch{$('#providerState').textContent='Hệ thống lỗi'}
+}
+
+$('#createBtn').onclick=async()=>{const btn=$('#createBtn');btn.disabled=true;btn.textContent='ĐANG KHỞI TẠO...';try{const d=await api('/api/projects',{method:'POST',body:JSON.stringify({idea:$('#idea').value,duration:Number($('#duration').value),music_mode:$('#musicMode').value})});activeProjectId=d.project.id;renderLive({id:activeProjectId,status:'queued',progress:0,message:'Đã xếp hàng'});startPoll(activeProjectId);showView('create')}catch(e){alert(e.message)}finally{btn.disabled=false;btn.textContent='✦ TẠO VIDEO'}};
+function renderLive(p){const el=$('#liveProject');el.className='live-card active-job';el.innerHTML=`<div class="eyebrow">${esc(p.status||'')}</div><h3>${esc(p.title||'Đang sản xuất video')}</h3><p class="muted">${esc(p.message||'')}</p><div class="progress"><i style="width:${Number(p.progress||0)}%"></i></div><b>${Number(p.progress||0)}%</b>${p.error?`<p class="msg error">${esc(p.error)}</p>`:''}${p.output_media_id?`<video controls preload="metadata" src="/api/media/${p.output_media_id}"></video><div class="actions"><a class="primary" href="/api/media/${p.output_media_id}" target="_blank">Mở video</a></div>`:''}`}
 function startPoll(id){clearInterval(pollTimer);const tick=async()=>{try{const {project}=await api(`/api/projects/${id}`);renderLive(project);if(['done','error','waiting_music'].includes(project.status)){clearInterval(pollTimer);pollTimer=null;loadProjects();checkHealth();if(project.status==='waiting_music')showMusicPicker(project)}}catch{}};tick();pollTimer=setInterval(tick,2500)}
 async function showMusicPicker(p){const {media}=await api('/api/media?kind=music');if(!media.length){$('#liveProject').insertAdjacentHTML('beforeend','<p class="msg error">Chưa có nhạc. Vào Thư viện upload MP3/WAV rồi quay lại Projects.</p>');return}const box=document.createElement('div');box.className='actions';const sel=document.createElement('select');media.forEach(m=>{const o=document.createElement('option');o.value=m.id;o.textContent=m.name;sel.appendChild(o)});const b=document.createElement('button');b.className='primary';b.textContent='Chọn nhạc & Render';b.onclick=async()=>{try{await api(`/api/projects/${p.id}/music`,{method:'POST',body:JSON.stringify({musicId:sel.value})});startPoll(p.id)}catch(e){alert(e.message)}};box.append(sel,b);$('#liveProject').appendChild(box)}
+
 async function loadProjects(){try{const {projects}=await api('/api/projects');const el=$('#projectsList');if(!projects.length){el.innerHTML='<div class="empty-state">Chưa có project.</div>';return}el.innerHTML=projects.map(p=>`<article class="project-card"><div class="eyebrow">${esc(p.status)}</div><h3>${esc(p.title)}</h3><p class="muted">${esc((p.idea||'AI tự nghĩ').slice(0,140))}</p><div class="progress"><i style="width:${p.progress}%"></i></div><small>${p.progress}% · ${esc(p.message||'')}</small>${p.output_media_id?`<video controls preload="metadata" src="/api/media/${p.output_media_id}"></video>`:''}<div class="actions">${p.status==='waiting_music'?`<button class="ghost pick-music" data-id="${p.id}">Chọn nhạc</button>`:''}${p.status==='error'?`<button class="ghost retry" data-id="${p.id}">Thử lại</button>`:''}</div></article>`).join('');el.querySelectorAll('.retry').forEach(b=>b.onclick=async()=>{await api(`/api/projects/${b.dataset.id}/retry`,{method:'POST'});loadProjects()});el.querySelectorAll('.pick-music').forEach(b=>b.onclick=async()=>{const {project}=await api(`/api/projects/${b.dataset.id}`);activeProjectId=project.id;showView('create');renderLive(project);showMusicPicker(project)})}catch(e){$('#projectsList').innerHTML=`<div class="msg error">${esc(e.message)}</div>`}}
 $('#refreshProjects').onclick=loadProjects;
-$('#uploadBtn').onclick=async()=>{const f=$('#mediaFile').files[0];if(!f)return alert('Chọn file trước');const fd=new FormData();fd.append('file',f);fd.append('kind',$('#mediaKind').value);$('#uploadMsg').textContent='Đang upload...';try{await api('/api/media',{method:'POST',body:fd});$('#uploadMsg').textContent='✓ Upload xong';$('#mediaFile').value='';loadMedia()}catch(e){$('#uploadMsg').textContent=e.message;$('#uploadMsg').className='msg error'}}
-async function loadMedia(){try{const {media}=await api('/api/media');const el=$('#mediaList');if(!media.length){el.innerHTML='<div class="empty-state">Thư viện đang trống.</div>';return}el.innerHTML=media.map(m=>`<article class="media-card"><div class="eyebrow">${esc(m.kind)}</div><b>${esc(m.name)}</b><small class="muted">${Math.round(Number(m.size||0)/1024)} KB</small>${m.kind==='music'?`<audio controls src="/api/media/${m.id}"></audio>`:''}${['image','logo'].includes(m.kind)?`<img loading="lazy" src="/api/media/${m.id}" />`:''}${m.kind==='video'?`<video controls src="/api/media/${m.id}"></video>`:''}<div class="actions"><button class="ghost danger del-media" data-id="${m.id}">Xóa</button></div></article>`).join('');el.querySelectorAll('.del-media').forEach(b=>b.onclick=async()=>{if(!confirm('Xóa media này?'))return;try{await api(`/api/media/${b.dataset.id}`,{method:'DELETE'});loadMedia()}catch(e){alert(e.message)}})}catch(e){$('#mediaList').innerHTML=`<div class="msg error">${esc(e.message)}</div>`}}
-$('#addUserBtn').onclick=async()=>{try{await api('/api/admin/users',{method:'POST',body:JSON.stringify({email:$('#newUserEmail').value,password:$('#newUserPass').value,role:$('#newUserRole').value})});$('#userMsg').textContent='✓ Đã tạo user';$('#newUserEmail').value='';$('#newUserPass').value='';loadUsers()}catch(e){$('#userMsg').textContent=e.message;$('#userMsg').className='msg error'}}
+
+$('#uploadBtn').onclick=async()=>{const f=$('#mediaFile').files[0];if(!f)return alert('Chọn file trước');const fd=new FormData();fd.append('file',f);fd.append('kind',$('#mediaKind').value);$('#uploadMsg').textContent='Đang upload...';try{await api('/api/media',{method:'POST',body:fd});$('#uploadMsg').textContent='✓ Upload xong';$('#mediaFile').value='';loadMedia()}catch(e){$('#uploadMsg').textContent=e.message;$('#uploadMsg').className='msg error'}};
+
+function bindMediaPlayers(){
+  $$('#mediaList audio,#mediaList video').forEach(player=>{
+    const status=player.parentElement.querySelector('.playback-status');
+    player.addEventListener('loadedmetadata',()=>{if(status){status.textContent='';status.className='playback-status muted'}});
+    player.addEventListener('error',()=>{if(status){const code=player.error?.code||'';status.textContent=`Không phát được media${code?` · mã ${code}`:''}`;status.className='playback-status msg error'}});
+  });
+}
+
+async function loadMedia(){
+  try{
+    const {media}=await api('/api/media'),el=$('#mediaList');
+    if(!media.length){el.innerHTML='<div class="empty-state">Thư viện đang trống.</div>';return}
+    el.innerHTML=media.map(m=>`<article class="media-card"><div class="eyebrow">${esc(m.kind)}</div><b>${esc(m.name)}</b><small class="muted">${Math.round(Number(m.size||0)/1024)} KB</small>${m.kind==='music'?`<audio controls preload="metadata" src="/api/media/${m.id}"></audio><small class="playback-status muted"></small>`:''}${['image','logo'].includes(m.kind)?`<img loading="lazy" src="/api/media/${m.id}" />`:''}${m.kind==='video'?`<video controls preload="metadata" src="/api/media/${m.id}"></video><small class="playback-status muted"></small>`:''}<div class="actions"><button class="ghost danger del-media" data-id="${m.id}">Xóa</button></div></article>`).join('');
+    bindMediaPlayers();
+    el.querySelectorAll('.del-media').forEach(b=>b.onclick=async()=>{if(!confirm('Xóa media này?'))return;try{await api(`/api/media/${b.dataset.id}`,{method:'DELETE'});loadMedia()}catch(e){alert(e.message)}});
+  }catch(e){$('#mediaList').innerHTML=`<div class="msg error">${esc(e.message)}</div>`}
+}
+
+$('#addUserBtn').onclick=async()=>{try{await api('/api/admin/users',{method:'POST',body:JSON.stringify({email:$('#newUserEmail').value,password:$('#newUserPass').value,role:$('#newUserRole').value})});$('#userMsg').textContent='✓ Đã tạo user';$('#newUserEmail').value='';$('#newUserPass').value='';loadUsers()}catch(e){$('#userMsg').textContent=e.message;$('#userMsg').className='msg error'}};
 async function loadUsers(){if(me?.role!=='SUPER_ADMIN')return;try{const {users}=await api('/api/admin/users');$('#usersBody').innerHTML=users.map(u=>`<tr><td>${esc(u.email)}</td><td><span class="badge">${u.role}</span></td><td>${u.active?'Hoạt động':'Đã khóa'}</td><td>${fmtDate(u.created_at)}</td><td><div class="actions">${u.role!=='SUPER_ADMIN'?`<button class="ghost toggle-user" data-id="${u.id}" data-active="${u.active}">${u.active?'Khóa':'Mở'}</button><button class="ghost role-user" data-id="${u.id}" data-role="${u.role}">${u.role==='ADMIN'?'Hạ USER':'Nâng ADMIN'}</button><button class="ghost danger del-user" data-id="${u.id}">Xóa</button>`:'<span class="muted">Owner</span>'}</div></td></tr>`).join('');$$('.toggle-user').forEach(b=>b.onclick=async()=>{await api(`/api/admin/users/${b.dataset.id}`,{method:'PATCH',body:JSON.stringify({active:b.dataset.active!=='true'})});loadUsers()});$$('.role-user').forEach(b=>b.onclick=async()=>{await api(`/api/admin/users/${b.dataset.id}`,{method:'PATCH',body:JSON.stringify({role:b.dataset.role==='ADMIN'?'USER':'ADMIN'})});loadUsers()});$$('.del-user').forEach(b=>b.onclick=async()=>{if(!confirm('Xóa user này?'))return;await api(`/api/admin/users/${b.dataset.id}`,{method:'DELETE'});loadUsers()})}catch(e){$('#userMsg').textContent=e.message}}
+
 function togglePremiumConfig(){const on=$('#premiumFallback').checked;$('#premiumConfig').classList.toggle('hidden',!on)}
-async function loadSettings(){if(me?.role!=='SUPER_ADMIN')return;try{const {settings}=await api('/api/settings');$('#copilotModel').value=settings.copilot_model||'gpt-5.4';$('#dailyLimit').value=settings.image_daily_limit||20;$('#premiumFallback').checked=String(settings.premium_fallback)==='true';togglePremiumConfig();$('#profileEmail').value=me.email;$('#geminiTextModel').value=settings.gemini_text_model||'gemini-3.7-flash';$('#geminiImageModel').value=settings.gemini_image_model||'gemini-3.1-flash-image';$('#openaiTextModel').value=settings.openai_text_model||'gpt-5.6-luna';$('#openaiImageModel').value=settings.openai_image_model||'gpt-image-1-mini';$('#geminiSaved').textContent=settings.gemini_api_key?'✓ Đã lưu key':'Chưa lưu key';$('#openaiSaved').textContent=settings.openai_api_key?'✓ Đã lưu key':'Chưa lưu key';const connected=!!settings.copilot_connected,status=settings.copilot_status||'unknown',ok=connected&&status==='ok',blocked=connected&&status==='blocked';$('#copilotStatusDot').classList.toggle('connected',ok);$('#copilotStatusDot').classList.toggle('blocked',blocked);$('#copilotStatusText').textContent=!connected?'Chưa kết nối':ok?'Copilot hoạt động':blocked?'Copilot bị policy chặn':status==='error'?'Copilot đang lỗi':'Đã kết nối · chưa kiểm tra';$('#copilotStatusSub').textContent=!connected?(settings.github_app_ready?'GitHub App đã sẵn sàng — bấm Kết nối để đăng nhập lại.':'Bấm Kết nối để đăng nhập GitHub.'):ok?`${settings.copilot_login?'@'+settings.copilot_login+' · ':''}Đã kiểm tra model/policy thành công.`:blocked?(settings.copilot_last_error||'GitHub policy không cho SDK sử dụng Copilot.'):(settings.copilot_last_error||'Cần kiểm tra quyền Copilot thực tế.');$('#copilotConnectBtn').textContent=connected?'Kết nối lại':'Kết nối GitHub Copilot';$('#copilotDisconnectBtn').classList.toggle('hidden',!connected);$('#copilotTestBtn').disabled=!connected;$('#cfAccount').placeholder=settings.cf_account_id?'Đã lưu — để trống nếu không đổi':'Chưa cấu hình';$('#cfToken').placeholder=settings.cf_api_token?'Đã lưu — để trống nếu không đổi':'Chưa cấu hình';$('#geminiKey').placeholder=settings.gemini_api_key?'Đã lưu — để trống nếu không đổi':'AIza...';$('#openaiKey').placeholder=settings.openai_api_key?'Đã lưu — để trống nếu không đổi':'sk-...';if(connected&&status==='unknown'&&!copilotAutoTesting){copilotAutoTesting=true;setTimeout(()=>testCopilot(true).finally(()=>copilotAutoTesting=false),150)}}catch(e){$('#settingsMsg').textContent=e.message}}
+async function loadSettings(){
+  if(me?.role!=='SUPER_ADMIN')return;
+  try{
+    const {settings}=await api('/api/settings');
+    $('#copilotModel').value=settings.copilot_model||'gpt-5.4';
+    $('#dailyLimit').value=settings.image_daily_limit||20;
+    $('#premiumFallback').checked=String(settings.premium_fallback)==='true';
+    togglePremiumConfig();
+    $('#profileEmail').value=me.email;
+    $('#geminiTextModel').value=settings.gemini_text_model||'gemini-3.7-flash';
+    $('#geminiImageModel').value=settings.gemini_image_model||'gemini-3.1-flash-image';
+    $('#openaiTextModel').value=settings.openai_text_model||'gpt-5.6-luna';
+    $('#openaiImageModel').value=settings.openai_image_model||'gpt-image-1-mini';
+    $('#geminiSaved').textContent=settings.gemini_api_key?'✓ Đã lưu key':'Chưa lưu key';
+    $('#openaiSaved').textContent=settings.openai_api_key?'✓ Đã lưu key':'Chưa lưu key';
+    const connected=!!settings.copilot_connected,status=settings.copilot_status||'unknown',ok=connected&&status==='ok',blocked=connected&&status==='blocked';
+    $('#copilotStatusDot').classList.toggle('connected',ok);
+    $('#copilotStatusDot').classList.toggle('blocked',blocked);
+    $('#copilotStatusText').textContent=!connected?'Chưa kết nối':ok?'Copilot hoạt động':blocked?'Copilot bị GitHub policy chặn':status==='error'?'Copilot đang lỗi':'Đã kết nối · chưa kiểm tra';
+    $('#copilotStatusSub').textContent=!connected?(settings.github_app_ready?'GitHub App đã sẵn sàng — bấm Kết nối để đăng nhập lại.':'Bấm Kết nối để đăng nhập GitHub.'):ok?`${settings.copilot_login?'@'+settings.copilot_login+' · ':''}Đã kiểm tra model/policy thành công.`:blocked?'GitHub không cho tài khoản này dùng Copilot SDK. NGS sẽ tự dùng Cloudflare AI miễn phí để lập kế hoạch video.':(settings.copilot_last_error||'Cần kiểm tra quyền Copilot thực tế.');
+    $('#copilotModel').disabled=blocked;
+    $('#copilotConnectBtn').textContent=connected?'Kết nối lại':'Kết nối GitHub Copilot';
+    $('#copilotDisconnectBtn').classList.toggle('hidden',!connected);
+    $('#copilotTestBtn').disabled=!connected;
+    $('#cfAccount').placeholder=settings.cf_account_id?'Đã lưu — để trống nếu không đổi':'Chưa cấu hình';
+    $('#cfToken').placeholder=settings.cf_api_token?'Đã lưu — để trống nếu không đổi':'Chưa cấu hình';
+    $('#geminiKey').placeholder=settings.gemini_api_key?'Đã lưu — để trống nếu không đổi':'AIza...';
+    $('#openaiKey').placeholder=settings.openai_api_key?'Đã lưu — để trống nếu không đổi':'sk-...';
+    if(connected&&status==='unknown'&&!copilotAutoTesting){copilotAutoTesting=true;setTimeout(()=>testCopilot(true).finally(()=>copilotAutoTesting=false),150)}
+  }catch(e){$('#settingsMsg').textContent=e.message}
+}
+
 $('#premiumFallback').onchange=togglePremiumConfig;
 $('#copilotConnectBtn').onclick=()=>{location.href='/api/copilot/connect'};
 $('#copilotDisconnectBtn').onclick=async()=>{if(!confirm('Ngắt GitHub Copilot khỏi NGS Music Studio?'))return;try{await api('/api/copilot/disconnect',{method:'POST'});$('#settingsMsg').textContent='✓ Đã ngắt GitHub Copilot';await Promise.all([loadSettings(),checkHealth()])}catch(e){$('#settingsMsg').textContent=e.message;$('#settingsMsg').className='msg error'}};
 async function testCopilot(silent=false){const el=$('#copilotTestMsg');if(!silent){el.textContent='Đang kiểm tra Copilot model/policy...';el.className='msg'}try{const r=await api('/api/providers/test/copilot',{method:'POST'});el.textContent=`✓ Copilot dùng được${r.count?` · ${r.count} model`:''}`;el.className='msg';await Promise.all([loadSettings(),checkHealth()]);return true}catch(e){el.textContent=`✕ ${e.message}`;el.className='msg error';await Promise.all([loadSettings(),checkHealth()]);return false}}
 $('#copilotTestBtn').onclick=()=>testCopilot(false);
+
 function collectSettings(){const body={copilot_model:$('#copilotModel').value||'gpt-5.4',image_daily_limit:Number($('#dailyLimit').value),premium_fallback:$('#premiumFallback').checked,gemini_text_model:$('#geminiTextModel').value||'gemini-3.7-flash',gemini_image_model:$('#geminiImageModel').value||'gemini-3.1-flash-image',openai_text_model:$('#openaiTextModel').value||'gpt-5.6-luna',openai_image_model:$('#openaiImageModel').value||'gpt-image-1-mini'};if($('#cfAccount').value)body.cf_account_id=$('#cfAccount').value;if($('#cfToken').value)body.cf_api_token=$('#cfToken').value;if($('#geminiKey').value)body.gemini_api_key=$('#geminiKey').value;if($('#openaiKey').value)body.openai_api_key=$('#openaiKey').value;return body}
 async function saveAllSettings(show=true){try{await api('/api/settings',{method:'POST',body:JSON.stringify(collectSettings())});if(show){$('#settingsMsg').textContent='✓ Đã lưu cấu hình';$('#settingsMsg').className='msg'}$('#cfAccount').value=$('#cfToken').value=$('#geminiKey').value=$('#openaiKey').value='';await Promise.all([loadSettings(),checkHealth()]);return true}catch(e){$('#settingsMsg').textContent=e.message;$('#settingsMsg').className='msg error';return false}}
 $('#saveSettings').onclick=()=>saveAllSettings(true);
 async function testPaidProvider(provider){const msg=$(provider==='gemini'?'#geminiTestMsg':'#openaiTestMsg'),keyEl=$(provider==='gemini'?'#geminiKey':'#openaiKey');if(keyEl.value){msg.textContent='Đang lưu key...';if(!await saveAllSettings(false))return}msg.textContent=`Đang kiểm tra ${provider==='gemini'?'Gemini':'OpenAI'} key...`;msg.className='msg';try{await api(`/api/providers/test/${provider}`,{method:'POST'});msg.textContent='✓ Key hợp lệ';msg.className='msg';await checkHealth()}catch(e){msg.textContent=`✕ ${e.message}`;msg.className='msg error'}}
-$('#geminiTestBtn').onclick=()=>testPaidProvider('gemini');$('#openaiTestBtn').onclick=()=>testPaidProvider('openai');
-$('#saveProfile').onclick=async()=>{const body={};if($('#profileEmail').value&&$('#profileEmail').value!==me.email)body.email=$('#profileEmail').value;if($('#profilePassword').value)body.password=$('#profilePassword').value;if(!Object.keys(body).length)return;try{const d=await api('/api/me',{method:'PATCH',body:JSON.stringify(body)});me=d.user;$('#who').textContent=me.email;$('#profilePassword').value='';$('#settingsMsg').textContent='✓ Đã cập nhật tài khoản'}catch(e){$('#settingsMsg').textContent=e.message;$('#settingsMsg').className='msg error'}}
+$('#geminiTestBtn').onclick=()=>testPaidProvider('gemini');
+$('#openaiTestBtn').onclick=()=>testPaidProvider('openai');
+$('#saveProfile').onclick=async()=>{const body={};if($('#profileEmail').value&&$('#profileEmail').value!==me.email)body.email=$('#profileEmail').value;if($('#profilePassword').value)body.password=$('#profilePassword').value;if(!Object.keys(body).length)return;try{const d=await api('/api/me',{method:'PATCH',body:JSON.stringify(body)});me=d.user;$('#who').textContent=me.email;$('#profilePassword').value='';$('#settingsMsg').textContent='✓ Đã cập nhật tài khoản'}catch(e){$('#settingsMsg').textContent=e.message;$('#settingsMsg').className='msg error'}};
+
 bootstrap();
