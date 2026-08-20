@@ -47,6 +47,7 @@
           <p class="muted">Cloudflare AI lập kế hoạch → FLUX tạo ảnh → thư viện nhạc → FFmpeg dựng & QA. Gemini/OpenAI chỉ dùng khi Premium fallback được bật.</p>
           <label>Ý tưởng <span class="optional">(để trống = AI tự nghĩ)</span><textarea id="idea" rows="5" placeholder="Ví dụ: một câu chuyện tình buồn về người đến sau..."></textarea></label>
           <div class="row2"><label>Thời lượng<select id="duration"><option>15</option><option selected>20</option><option>30</option><option>45</option><option>60</option></select></label><label>Nhạc<select id="musicMode"><option value="auto">AI tự chọn trong thư viện</option><option value="manual">Chọn nhạc sau</option></select></label></div>
+          <label>Phong cách hình ảnh<select id="visualStyle"><option value="realistic" selected>Ảnh thực tế · người thật</option><option value="illustration">Minh họa</option></select><small class="muted">Mặc định khóa photorealistic: người thật, da thật, ánh sáng thật; chặn anime/cartoon/3D.</small></label>
           <button id="createBtn" class="primary hero-btn">✦ TẠO VIDEO</button>
           <div class="cost-lock"><span>🛡</span><div><b>FREE FIRST</b><small>Cloudflare AI là mặc định. Gemini/OpenAI chỉ được gọi khi Premium fallback được bật.</small></div></div>
         </div>
@@ -98,5 +99,6 @@
   </main>
 </div>
 <script src="/app.js"></script>
+<script src="/visual-style.js"></script>
 </body>
 </html>
