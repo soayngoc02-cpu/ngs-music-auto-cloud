@@ -1,9 +1,31 @@
 import {getSetting,q,newid} from './db.js';
-import {planWithFallback,testCopilotAccess,testPremiumProvider} from './providers-v4.js';
+import {planWithFallback as basePlanWithFallback,testCopilotAccess,testPremiumProvider} from './providers-v4.js';
 
-export {planWithFallback,testCopilotAccess,testPremiumProvider};
+export {testCopilotAccess,testPremiumProvider};
 
 function errText(e){return String(e?.message||e||'Lỗi không xác định')}
+
+const STYLE_MARKER=/\s*\[NGS_VISUAL_STYLE:(realistic|illustration)\]\s*$/i;
+function visualStyleFromIdea(idea){const m=String(idea||'').match(STYLE_MARKER);return m?.[1]?.toLowerCase()==='illustration'?'illustration':'realistic'}
+function cleanIdea(idea){return String(idea||'').replace(STYLE_MARKER,'').trim()}
+
+function stylePrompt(prompt,style='realistic'){
+  const base=String(prompt||'').trim();
+  if(style==='illustration'){
+    return `Cinematic editorial illustration, emotionally expressive composition, sophisticated contemporary visual storytelling, vertical 9:16. ${base}. No text, no watermark.`.slice(0,3000);
+  }
+  return `PHOTOREALISTIC REAL-LIFE CINEMATIC PHOTOGRAPH. This must look like a genuine camera photo, NOT artwork. Use real adult Vietnamese or Asian people when people appear; natural human anatomy; believable facial proportions; realistic skin texture and pores; real hair; realistic eyes and hands; natural clothing; physically plausible environment; cinematic but realistic lighting; DSLR/photojournalistic photography; shallow depth of field only when appropriate; contemporary Vietnam/Asian atmosphere when relevant; vertical 9:16. Absolutely NO anime, NO cartoon, NO illustration, NO painting, NO digital art, NO 3D render, NO CGI, NO game art, NO doll-like face, NO comic style, NO vector art. ${base}. No text, no watermark.`.slice(0,3000);
+}
+
+export async function planWithFallback(project,recent,music){
+  const visualStyle=visualStyleFromIdea(project?.idea);
+  const cleanedProject={...project,idea:cleanIdea(project?.idea)};
+  const result=await basePlanWithFallback(cleanedProject,recent,music);
+  result.plan=result.plan||{};
+  result.plan.visualStyle=visualStyle;
+  result.plan.scenes=(result.plan.scenes||[]).map(scene=>({...scene,imagePrompt:stylePrompt(scene.imagePrompt,visualStyle)}));
+  return result;
+}
 
 async function fetchTimed(url,options={},timeoutMs=60000){
   const controller=new AbortController();
@@ -35,8 +57,6 @@ async function cloudflareImage(prompt){
   let lastErr;
   for(let attempt=0;attempt<2;attempt++){
     try{
-      // FLUX.1-schnell Workers AI hiện chỉ cần prompt/steps ở flow này.
-      // Không gửi seed vì endpoint hiện tại từ chối property này với HTTP 400.
       const resp=await fetchTimed(url,{
         method:'POST',
         headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},
