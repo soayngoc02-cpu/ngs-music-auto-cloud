@@ -1,0 +1,28 @@
+name: NGS Studio V7 CI
+on:
+  push:
+    branches: [ngs-studio-v7-online]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install V7 dependencies
+        working-directory: studio-v7
+        run: npm install --omit=dev
+      - name: Syntax check
+        working-directory: studio-v7
+        run: |
+          node --check src/db.js
+          node --check src/auth.js
+          node --check src/providers.js
+          node --check src/render.js
+          node --check src/server.js
+          node --check public/app.js
+      - name: Build production Docker image
+        run: docker build -t ngs-studio-v7-ci .
