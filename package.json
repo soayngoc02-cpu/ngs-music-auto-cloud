@@ -1,0 +1,9 @@
+{
+  "name":"ngs-music-studio-v7-railway",
+  "version":"7.0.0",
+  "private":true,
+  "type":"module",
+  "scripts":{"start":"node studio-v7/src/server.js","check":"node --check studio-v7/src/server.js"},
+  "engines":{"node":">=22.12.0"},
+  "dependencies":{"@github/copilot-sdk":"latest","cookie-parser":"^1.4.7","express":"^5.1.0","jsonwebtoken":"^9.0.2","multer":"^2.0.2","pg":"^8.16.3"}
+}
