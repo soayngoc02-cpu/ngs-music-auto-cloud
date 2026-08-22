@@ -6,7 +6,6 @@ import {fileURLToPath} from 'url';
 import {pool,q,initDb,getSetting,setSetting,newid,audit} from './db.js';
 import {auth,requireRole,registerAuthRoutes} from './auth.js';
 import {planWithFallback,saveGeneratedImage,testPremiumProvider} from './providers.js';
-import {normalizeSceneDurations} from './render.js';
 import {registerGithubRenderRoutes,githubRenderState,dispatchGithubRender} from './github-render.js';
 
 const __dirname=path.dirname(fileURLToPath(import.meta.url));
@@ -21,6 +20,12 @@ app.use(cookieParser());
 app.use(express.static(path.join(ROOT,'public'),{index:false}));
 registerAuthRoutes(app);
 registerGithubRenderRoutes(app);
+
+export function normalizeSceneDurations(scenes,total){
+  const src=scenes?.length?scenes:[{duration:total,text:'',motion:'slow_push',effect:'none'}];
+  const raw=src.map(s=>Math.max(2,Number(s.duration)||3)),sum=raw.reduce((a,b)=>a+b,0);let used=0;
+  return src.map((s,i)=>{const d=i===src.length-1?Math.max(2,total-used):Math.max(2,Math.round(raw[i]/sum*total));used+=d;return{...s,duration:d}});
+}
 
 async function updateProject(id,patch){
   const ks=Object.keys(patch),vals=[],sets=[];
@@ -121,7 +126,6 @@ app.delete('/api/media/:id',auth,async(req,res)=>{
 
 let queue=Promise.resolve();
 const enqueue=fn=>(queue=queue.then(fn).catch(e=>console.error('queue',e)));
-
 async function mediaExists(id,kind=null){if(!id)return false;const r=kind?await q('select 1 from media where id=$1 and kind=$2',[id,kind]):await q('select 1 from media where id=$1',[id]);return r.rowCount>0}
 
 async function sendToRender(pid,musicId,plan){
