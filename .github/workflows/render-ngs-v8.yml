@@ -1,0 +1,61 @@
+name: NGS V8 1080p Render
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_id:
+        description: 'NGS project id'
+        required: true
+      base_url:
+        description: 'NGS Studio API base URL'
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: ngs-v8-render-${{ inputs.project_id }}
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Worker healthcheck
+        if: inputs.project_id == '__healthcheck__'
+        run: echo "NGS V8 GitHub render worker ready"
+
+      - uses: actions/checkout@v4
+        if: inputs.project_id != '__healthcheck__'
+
+      - uses: actions/setup-node@v4
+        if: inputs.project_id != '__healthcheck__'
+        with:
+          node-version: '22'
+
+      - name: Install FFmpeg and fonts
+        if: inputs.project_id != '__healthcheck__'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg fonts-dejavu-core fontconfig
+          ffmpeg -version | head -n 2
+
+      - name: Get GitHub OIDC token
+        if: inputs.project_id != '__healthcheck__'
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN="$(curl -fsSL -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=ngs-music-render-v8" | jq -r '.value')"
+          test -n "$TOKEN"
+          test "$TOKEN" != "null"
+          echo "::add-mask::$TOKEN"
+          echo "NGS_WORKER_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
+      - name: Render 1080x1920
+        if: inputs.project_id != '__healthcheck__'
+        env:
+          PROJECT_ID: ${{ inputs.project_id }}
+          BASE_URL: ${{ inputs.base_url }}
+        run: node studio-v7/worker/render-job.mjs
