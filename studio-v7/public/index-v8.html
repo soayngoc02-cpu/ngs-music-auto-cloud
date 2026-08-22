@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>NGS Music Studio V8</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/v8.css" />
+</head>
+<body>
+<div id="login" class="auth-shell hidden">
+  <div class="auth-card">
+    <div class="brand-mark">NGS</div><h1>NGS Music Studio V8</h1><p id="authSubtitle">Cloud Render 1080p.</p>
+    <form id="setupForm" class="hidden"><label>Email chủ sở hữu<input id="setupEmail" type="email" required /></label><label>Mật khẩu<input id="setupPassword" type="password" minlength="10" required /></label><button class="primary full" type="submit">Tạo SUPER_ADMIN</button></form>
+    <form id="loginForm" class="hidden"><label>Email<input id="loginEmail" type="email" required /></label><label>Mật khẩu<input id="loginPassword" type="password" required /></label><button class="primary full" type="submit">Đăng nhập</button></form>
+    <div id="loginMsg" class="msg"></div>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+  <header class="topbar">
+    <div class="brand"><span class="brand-dot"></span><b>NGS MUSIC STUDIO</b><span class="version">V8</span></div>
+    <nav id="nav"><button data-view="create" class="active">✦ Tạo video</button><button data-view="projects">Projects</button><button data-view="media">Thư viện</button><button data-view="users" class="admin-only">Users</button><button data-view="settings" class="admin-only">Hệ thống</button></nav>
+    <div class="account"><span id="roleBadge" class="badge"></span><span id="who"></span><button id="logoutBtn" class="ghost small">Thoát</button></div>
+  </header>
+
+  <main>
+    <section id="view-create" class="view active">
+      <div class="workspace-grid">
+        <div class="panel create-panel">
+          <div class="eyebrow">CLOUD FACTORY · 1080P</div><h2>Từ ý tưởng → video 1080×1920.</h2>
+          <p class="muted">Cloudflare AI lập kế hoạch → Leonardo Phoenix tạo visual → nhạc thư viện → GitHub Actions + FFmpeg dựng 1080p. Render Free không còn chạy FFmpeg.</p>
+          <label>Ý tưởng <span class="optional">(để trống = AI tự nghĩ)</span><textarea id="idea" rows="5" placeholder="Ví dụ: cô gái nghe nhạc một mình trong căn phòng đêm mưa..."></textarea></label>
+          <div class="row2"><label>Thời lượng<select id="duration"><option>15</option><option selected>20</option><option>30</option><option>45</option><option>60</option></select></label><label>Nhạc<select id="musicMode"><option value="auto">AI chọn trong thư viện</option><option value="manual">Chọn nhạc sau</option></select></label></div>
+          <div class="row2"><label>Phong cách hình ảnh<select id="visualStyle"><option value="realistic" selected>Ảnh thực tế · người thật</option><option value="illustration">Minh họa</option></select></label><label>Chất lượng<input value="1080 × 1920 · 30 FPS" disabled /></label></div>
+          <div class="quality-lock"><b>MASTER OUTPUT</b><span>1080 × 1920</span><small>H.264 High · CRF 18 · AAC 192k · ASS subtitle</small></div>
+          <button id="createBtn" class="primary hero-btn">✦ TẠO VIDEO 1080P</button>
+        </div>
+        <div class="panel live-panel">
+          <div class="panel-head"><b>Pipeline</b><span id="providerState" class="badge soft">đang kiểm tra...</span></div>
+          <div class="pipeline v8-pipeline"><div><span>1</span><b>Ý tưởng</b><small>Cloudflare AI</small></div><div><span>2</span><b>Visual</b><small>Phoenix</small></div><div><span>3</span><b>Nhạc</b><small>Library</small></div><div><span>4</span><b>Motion</b><small>Director</small></div><div><span>5</span><b>1080p</b><small>GitHub Actions</small></div></div>
+          <div id="liveProject" class="live-card empty"><div class="big-icon">✦</div><b>Chưa có job đang chạy</b><small>Render 1080p chạy tách khỏi web server.</small></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-projects" class="view"><div class="section-head"><div><div class="eyebrow">HISTORY</div><h2>Projects</h2></div><button id="refreshProjects" class="ghost">Làm mới</button></div><div id="projectsList" class="cards"></div></section>
+
+    <section id="view-media" class="view"><div class="section-head"><div><div class="eyebrow">CLOUD LIBRARY</div><h2>Thư viện media</h2></div></div><div class="panel upload-panel"><div class="row3"><label>Loại<select id="mediaKind"><option value="music">Nhạc</option><option value="image">Ảnh</option><option value="logo">Logo</option></select></label><label class="file-label">File<input id="mediaFile" type="file" /></label><button id="uploadBtn" class="primary">Upload</button></div><div id="uploadMsg" class="msg"></div></div><div id="mediaList" class="media-grid"></div></section>
+
+    <section id="view-users" class="view admin-only"><div class="section-head"><div><div class="eyebrow">SUPER ADMIN</div><h2>Quản lý user</h2></div></div><div class="panel compact"><div class="row4"><label>Email<input id="newUserEmail" type="email" /></label><label>Mật khẩu<input id="newUserPass" type="password" /></label><label>Quyền<select id="newUserRole"><option value="USER">USER</option><option value="ADMIN">ADMIN</option></select></label><button id="addUserBtn" class="primary">Tạo user</button></div><div id="userMsg" class="msg"></div></div><div class="table-wrap"><table><thead><tr><th>Email</th><th>Role</th><th>Trạng thái</th><th>Ngày tạo</th><th></th></tr></thead><tbody id="usersBody"></tbody></table></div></section>
+
+    <section id="view-settings" class="view admin-only">
+      <div class="section-head"><div><div class="eyebrow">V8 INFRASTRUCTURE</div><h2>Hệ thống</h2></div></div>
+      <div class="settings-grid">
+        <div class="panel worker-card"><div class="panel-head"><h3>GitHub Render Worker · 1080p</h3><span id="workerBadge" class="badge soft">Chưa kết nối</span></div><p class="muted">FFmpeg chạy trên GitHub Actions thay vì Render Free. Không cần PAT thủ công: cài GitHub App riêng cho repo NGS một lần.</p><div class="actions"><button id="workerConnect" class="primary">Kết nối GitHub Render Worker</button><button id="workerTest" class="ghost">Kiểm tra worker</button><button id="workerDisconnect" class="ghost danger hidden">Ngắt</button></div><div id="workerMsg" class="msg"></div></div>
+        <div class="panel"><h3>Cloudflare AI · Brain + Visual</h3><p class="muted">Planner: Llama. Visual miễn phí ưu tiên Leonardo Phoenix → DreamShaper. Ảnh thực tế được khóa prompt người thật.</p><label>Account ID<input id="cfAccount" type="password" placeholder="Để trống nếu không đổi" /></label><label>API token<input id="cfToken" type="password" placeholder="Để trống nếu không đổi" /></label><label>Giới hạn ảnh/ngày<input id="dailyLimit" type="number" min="1" max="100" value="20" /></label></div>
+        <div class="panel"><h3>Tài khoản chủ</h3><label>Email<input id="profileEmail" type="email" /></label><label>Mật khẩu mới<input id="profilePassword" type="password" placeholder="ít nhất 10 ký tự" /></label><button id="saveProfile" class="ghost">Cập nhật tài khoản</button></div>
+        <div class="panel danger-lite"><h3>Premium fallback</h3><div class="switch-row"><div><b>Gemini / OpenAI</b><small>OFF = không phát sinh phí từ 2 provider này.</small></div><label class="switch"><input id="premiumFallback" type="checkbox" /><span></span></label></div><p class="muted">Chỉ cứu cảnh khi Cloudflare image thất bại.</p></div>
+        <div id="premiumConfig" class="panel premium-config hidden"><div class="provider-grid"><div class="provider-box"><h3>Gemini</h3><label>API key<input id="geminiKey" type="password" /></label><label>Text model<input id="geminiTextModel" /></label><label>Image model<input id="geminiImageModel" /></label><button id="geminiTestBtn" class="ghost">Kiểm tra Gemini</button><div id="geminiTestMsg" class="msg"></div></div><div class="provider-box"><h3>OpenAI</h3><label>API key<input id="openaiKey" type="password" /></label><label>Text model<input id="openaiTextModel" /></label><label>Image model<input id="openaiImageModel" /></label><button id="openaiTestBtn" class="ghost">Kiểm tra OpenAI</button><div id="openaiTestMsg" class="msg"></div></div></div></div>
+      </div>
+      <button id="saveSettings" class="primary">Lưu cấu hình</button><div id="settingsMsg" class="msg"></div>
+    </section>
+  </main>
+</div>
+<script src="/app-v8.js"></script>
+</body>
+</html>
