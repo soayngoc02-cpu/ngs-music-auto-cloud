@@ -1,14 +1,15 @@
 {
-  "name":"ngs-music-studio-v7-online",
-  "version":"7.0.1",
+  "name":"ngs-music-studio-v8-cloud-render",
+  "version":"8.0.0",
   "type":"module",
-  "scripts":{"start":"node src/server.js","check":"node --check src/server.js && node --check src/auth.js && node --check src/providers.js && node --check src/render.js"},
+  "scripts":{
+    "check":"node --check src/server-v8.js && node --check src/github-render.js && node --check src/auth.js && node --check src/providers.js && node --check src/providers-v4.js && node --check worker/render-job.mjs",
+    "start":"npm run check && node src/server-v8.js"
+  },
   "engines":{"node":">=22.12.0"},
   "dependencies":{
-    "@github/copilot-sdk":"latest",
     "cookie-parser":"^1.4.7",
     "express":"^5.1.0",
-    "ffmpeg-static":"^5.2.0",
     "jsonwebtoken":"^9.0.2",
     "multer":"^2.0.2",
     "pg":"^8.16.3"
