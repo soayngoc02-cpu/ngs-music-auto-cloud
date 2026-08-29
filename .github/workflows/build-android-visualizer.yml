@@ -1,4 +1,4 @@
-name: Build NGS Music Visualizer APK
+name: Build NGS Music Visualizer Pro APK
 
 on:
   push:
@@ -30,19 +30,13 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Patch compiler compatibility
-        run: |
-          sed -i 's/Pair<IntArray,IntArray>=/Pair<IntArray,IntArray> =/' android-visualizer/app/src/main/java/com/ngsmusic/visualizer/GlVisualizerRenderer.kt
-          sed -i '/import android.media.ImageDecoder/d' android-visualizer/app/src/main/java/com/ngsmusic/visualizer/MainActivity.kt
-          sed -i 's/ScrollView.LayoutParams(-1,-2)/FrameLayout.LayoutParams(-1,-2)/' android-visualizer/app/src/main/java/com/ngsmusic/visualizer/MainActivity.kt
-
-      - name: Build debug APK
+      - name: Build Pro debug APK
         working-directory: android-visualizer
         run: gradle assembleDebug --stacktrace
 
-      - name: Upload installable APK
+      - name: Upload installable Pro APK
         uses: actions/upload-artifact@v4
         with:
-          name: NGS-Music-Visualizer-APK
+          name: NGS-Music-Visualizer-Pro-APK
           path: android-visualizer/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
