@@ -27,14 +27,30 @@ class VisualizerView @JvmOverloads constructor(context: Context, attrs: Attribut
     var logoScale: Float = 1f; set(value) { field = value.coerceIn(.35f, 2.5f); invalidate(); notifyLogo() }
     var onLogoTransformChanged: ((Float, Float, Float) -> Unit)? = null
 
+    var waveOffsetX: Float = WaveLayoutState.offsetX
+        set(value) {
+            field = value.coerceIn(-.48f, .48f)
+            WaveLayoutState.set(field, waveOffsetY)
+            invalidate()
+        }
+    var waveOffsetY: Float = WaveLayoutState.offsetY
+        set(value) {
+            field = value.coerceIn(-.48f, .48f)
+            WaveLayoutState.set(waveOffsetX, field)
+            invalidate()
+        }
+
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val path = Path()
     private val content = RectF()
     private var draggingLogo = false
+    private var draggingWave = false
     private var downX = 0f
     private var downY = 0f
     private var downLogoX = .5f
     private var downLogoY = .48f
+    private var downWaveX = 0f
+    private var downWaveY = 0f
 
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScaleBegin(detector: ScaleGestureDetector): Boolean = draggingLogo && logoBitmap != null
@@ -48,12 +64,20 @@ class VisualizerView @JvmOverloads constructor(context: Context, attrs: Attribut
     init {
         setLayerType(LAYER_TYPE_SOFTWARE, null)
         isClickable = true
+        WaveLayoutState.set(waveOffsetX, waveOffsetY)
     }
 
     fun resetLogoTransform() {
         logoX = .5f
         logoY = .48f
         logoScale = 1f
+    }
+
+    fun resetWavePosition() {
+        waveOffsetX = 0f
+        waveOffsetY = 0f
+        WaveLayoutState.reset()
+        invalidate()
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -66,46 +90,67 @@ class VisualizerView @JvmOverloads constructor(context: Context, attrs: Attribut
         drawOverlay(canvas)
         drawVisualizer(canvas)
         drawLogo(canvas)
+        if (draggingWave) drawWaveGuide(canvas)
         canvas.restore()
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (logoBitmap == null) return super.onTouchEvent(event)
         computeContentRect()
-        scaleDetector.onTouchEvent(event)
+        if (draggingLogo || event.actionMasked == MotionEvent.ACTION_DOWN) scaleDetector.onTouchEvent(event)
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                if (!content.contains(event.x, event.y) || !currentLogoRect().contains(event.x, event.y)) {
-                    draggingLogo = false
-                    return super.onTouchEvent(event)
-                }
-                draggingLogo = true
+                if (!content.contains(event.x, event.y)) return super.onTouchEvent(event)
                 downX = event.x
                 downY = event.y
-                downLogoX = logoX
-                downLogoY = logoY
+
+                val hitLogo = logoBitmap != null && currentLogoRect().contains(event.x, event.y)
+                if (hitLogo) {
+                    draggingLogo = true
+                    draggingWave = false
+                    downLogoX = logoX
+                    downLogoY = logoY
+                } else {
+                    draggingLogo = false
+                    draggingWave = true
+                    downWaveX = waveOffsetX
+                    downWaveY = waveOffsetY
+                }
                 parent?.requestDisallowInterceptTouchEvent(true)
                 invalidate()
                 return true
             }
-            MotionEvent.ACTION_MOVE -> {
-                if (draggingLogo && !scaleDetector.isInProgress) {
-                    logoX = (downLogoX + (event.x - downX) / max(1f, content.width())).coerceIn(0f, 1f)
-                    logoY = (downLogoY + (event.y - downY) / max(1f, content.height())).coerceIn(0f, 1f)
-                }
-                return draggingLogo || scaleDetector.isInProgress
+
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                if (draggingLogo) scaleDetector.onTouchEvent(event)
+                return draggingLogo || draggingWave
             }
+
+            MotionEvent.ACTION_MOVE -> {
+                if (draggingLogo) {
+                    scaleDetector.onTouchEvent(event)
+                    if (!scaleDetector.isInProgress) {
+                        logoX = (downLogoX + (event.x - downX) / max(1f, content.width())).coerceIn(0f, 1f)
+                        logoY = (downLogoY + (event.y - downY) / max(1f, content.height())).coerceIn(0f, 1f)
+                    }
+                } else if (draggingWave) {
+                    waveOffsetX = (downWaveX + (event.x - downX) / max(1f, content.width())).coerceIn(-.48f, .48f)
+                    waveOffsetY = (downWaveY + (event.y - downY) / max(1f, content.height())).coerceIn(-.48f, .48f)
+                }
+                return draggingLogo || draggingWave
+            }
+
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                val handled = draggingLogo
+                val handled = draggingLogo || draggingWave
                 draggingLogo = false
+                draggingWave = false
                 parent?.requestDisallowInterceptTouchEvent(false)
                 invalidate()
                 if (event.actionMasked == MotionEvent.ACTION_UP) performClick()
                 return handled
             }
         }
-        return draggingLogo || scaleDetector.isInProgress || super.onTouchEvent(event)
+        return draggingLogo || draggingWave || scaleDetector.isInProgress || super.onTouchEvent(event)
     }
 
     override fun performClick(): Boolean {
@@ -156,13 +201,15 @@ class VisualizerView @JvmOverloads constructor(context: Context, attrs: Attribut
         val pulse = d?.pulseAt(timeMs) ?: 0f
         val bars = d?.barsAt(timeMs, 72) ?: idleBars(72)
         if (d != null) {
-            // Keep the real FFT shape, but let detected beats breathe the whole visualizer subtly.
             for (i in bars.indices) {
                 val lowWeight = 1f - i.toFloat() / max(1, bars.lastIndex)
                 val gain = .90f + pulse * (.18f + .24f * lowWeight)
                 bars[i] = (bars[i] * gain).coerceIn(.015f, 1f)
             }
         }
+
+        canvas.save()
+        canvas.translate(content.width() * waveOffsetX, content.height() * waveOffsetY)
         when (styleIndex) {
             1 -> drawMirrorBars(canvas, bars)
             2 -> drawRadial(canvas, bars, pulse)
@@ -170,6 +217,7 @@ class VisualizerView @JvmOverloads constructor(context: Context, attrs: Attribut
             4 -> drawBassHalo(canvas, bars, pulse)
             else -> drawNeonBars(canvas, bars)
         }
+        canvas.restore()
     }
 
     private fun drawNeonBars(canvas: Canvas, bars: FloatArray) {
@@ -229,6 +277,18 @@ class VisualizerView @JvmOverloads constructor(context: Context, attrs: Attribut
         if (draggingLogo) {
             paint.style = Paint.Style.STROKE; paint.strokeWidth = max(2f, content.width() * .004f); paint.color = Color.argb(220, 255, 255, 255); canvas.drawRoundRect(d, 12f, 12f, paint); paint.style = Paint.Style.FILL
         }
+    }
+
+    private fun drawWaveGuide(canvas: Canvas) {
+        val cx = content.centerX() + content.width() * waveOffsetX
+        val cy = content.centerY() + content.height() * waveOffsetY
+        val s = min(content.width(), content.height()) * .035f
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = max(2f, content.width() * .004f)
+        paint.color = Color.argb(220, 255, 255, 255)
+        canvas.drawLine(cx - s, cy, cx + s, cy, paint)
+        canvas.drawLine(cx, cy - s, cx, cy + s, paint)
+        paint.style = Paint.Style.FILL
     }
 
     private fun palette(): Pair<Int, Int> = when (colorIndex) {
