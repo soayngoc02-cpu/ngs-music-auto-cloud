@@ -81,6 +81,8 @@ internal class GlVisualizerRenderer(
     private val bgH: Int
     private val logoW: Int
     private val logoH: Int
+    private val waveDx = width * WaveLayoutState.offsetX
+    private val waveDy = height * WaveLayoutState.offsetY
 
     init {
         GLES20.glViewport(0, 0, width, height)
@@ -158,7 +160,7 @@ internal class GlVisualizerRenderer(
     }
 
     private fun drawNeonBars(bars: FloatArray) {
-        val p = palette(); val base = height * .72f; val total = width * .82f; val x0 = (width - total) / 2f; val slot = total / bars.size; val bw = slot * .62f; val mh = height * .24f * intensity
+        val p = palette(); val base = height * .72f + waveDy; val total = width * .82f; val x0 = (width - total) / 2f + waveDx; val slot = total / bars.size; val bw = slot * .62f; val mh = height * .24f * intensity
         val glow = mutableListOf<Float>(); val solid = mutableListOf<Float>()
         for (i in bars.indices) {
             val h = max(4f, mh * bars[i]); val x = x0 + i * slot + (slot - bw) / 2f; val c = mixColor(p.first, p.second, i.toFloat() / max(1, bars.lastIndex))
@@ -169,7 +171,7 @@ internal class GlVisualizerRenderer(
     }
 
     private fun drawMirrorBars(bars: FloatArray) {
-        val p = palette(); val mid = height * .67f; val total = width * .84f; val x0 = (width - total) / 2f; val slot = total / bars.size; val bw = slot * .56f; val mh = height * .17f * intensity
+        val p = palette(); val mid = height * .67f + waveDy; val total = width * .84f; val x0 = (width - total) / 2f + waveDx; val slot = total / bars.size; val bw = slot * .56f; val mh = height * .17f * intensity
         val v = mutableListOf<Float>()
         for (i in bars.indices) {
             val h = mh * bars[i]; val x = x0 + i * slot + (slot - bw) / 2f; val c = mixColor(p.first, p.second, i.toFloat() / max(1, bars.lastIndex))
@@ -180,7 +182,7 @@ internal class GlVisualizerRenderer(
     }
 
     private fun drawRadial(bars: FloatArray, pulse: Float) {
-        val p = palette(); val cx = width / 2f; val cy = height * .49f; val ms = min(width, height).toFloat(); val r = ms * (.16f + pulse * .018f); val ml = ms * .12f * intensity; val th = max(3f, ms * .008f)
+        val p = palette(); val cx = width / 2f + waveDx; val cy = height * .49f + waveDy; val ms = min(width, height).toFloat(); val r = ms * (.16f + pulse * .018f); val ml = ms * .12f * intensity; val th = max(3f, ms * .008f)
         val glow = mutableListOf<Float>(); val solid = mutableListOf<Float>()
         for (i in bars.indices) {
             val a = (2.0 * PI * i / bars.size - PI / 2).toFloat(); val len = ml * bars[i]
@@ -192,7 +194,7 @@ internal class GlVisualizerRenderer(
     }
 
     private fun drawLineWave(bars: FloatArray) {
-        val p = palette(); val base = height * .69f; val total = width * .84f; val x0 = (width - total) / 2f; val amp = height * .17f * intensity; val th = max(3f, width * .006f)
+        val p = palette(); val base = height * .69f + waveDy; val total = width * .84f; val x0 = (width - total) / 2f + waveDx; val amp = height * .17f * intensity; val th = max(3f, width * .006f)
         val glow = mutableListOf<Float>(); val solid = mutableListOf<Float>(); var px = 0f; var py = 0f
         for (i in bars.indices) {
             val x = x0 + i * total / max(1, bars.lastIndex); val y = base + (if (i % 2 == 0) -1f else 1f) * amp * bars[i] * .58f
@@ -203,7 +205,7 @@ internal class GlVisualizerRenderer(
     }
 
     private fun drawBassHalo(bars: FloatArray, pulse: Float) {
-        val p = palette(); val cx = width / 2f; val cy = height * .49f; val ms = min(width, height).toFloat(); val r = ms * (.18f + pulse * .065f)
+        val p = palette(); val cx = width / 2f + waveDx; val cy = height * .49f + waveDy; val ms = min(width, height).toFloat(); val r = ms * (.18f + pulse * .065f)
         val ring = mutableListOf<Float>()
         for (i in 0 until 96) {
             val a1 = (2.0 * PI * i / 96).toFloat(); val a2 = (2.0 * PI * (i + 1) / 96).toFloat(); val c = mixColor(p.first, p.second, i / 96f)
