@@ -96,7 +96,6 @@ class VisualizerView @JvmOverloads constructor(context: Context, attrs: Attribut
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         computeContentRect()
-        if (draggingLogo || event.actionMasked == MotionEvent.ACTION_DOWN) scaleDetector.onTouchEvent(event)
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -110,6 +109,7 @@ class VisualizerView @JvmOverloads constructor(context: Context, attrs: Attribut
                     draggingWave = false
                     downLogoX = logoX
                     downLogoY = logoY
+                    scaleDetector.onTouchEvent(event)
                 } else {
                     draggingLogo = false
                     draggingWave = true
@@ -121,7 +121,7 @@ class VisualizerView @JvmOverloads constructor(context: Context, attrs: Attribut
                 return true
             }
 
-            MotionEvent.ACTION_POINTER_DOWN -> {
+            MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_POINTER_UP -> {
                 if (draggingLogo) scaleDetector.onTouchEvent(event)
                 return draggingLogo || draggingWave
             }
@@ -141,6 +141,7 @@ class VisualizerView @JvmOverloads constructor(context: Context, attrs: Attribut
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (draggingLogo) scaleDetector.onTouchEvent(event)
                 val handled = draggingLogo || draggingWave
                 draggingLogo = false
                 draggingWave = false
