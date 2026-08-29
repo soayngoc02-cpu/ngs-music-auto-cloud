@@ -15,12 +15,6 @@ android {
         versionName = "2.0-pro"
     }
 
-    sourceSets {
-        getByName("main") {
-            java.exclude("**/VideoExporter.kt")
-        }
-    }
-
     buildTypes {
         release {
             isMinifyEnabled = false
