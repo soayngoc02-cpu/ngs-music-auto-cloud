@@ -41,7 +41,7 @@ public final class AgnesClient {
     }
     public Map<String,Object> createVideo(String key,Map<String,Object> body)throws IOException{return request("POST","/v1/videos",key,body,120000);}
     public Map<String,Object> poll(String key,String videoId,String model)throws IOException{
-        return request("GET","/agnesapi?video_id="+URLEncoder.encode(videoId,StandardCharsets.UTF_8)+"&model_name="+URLEncoder.encode(model,StandardCharsets.UTF_8),key,null,45000);
+        return request("GET","/agnesapi?video_id="+URLEncoder.encode(videoId,StandardCharsets.UTF_8.name())+"&model_name="+URLEncoder.encode(model,StandardCharsets.UTF_8.name()),key,null,45000);
     }
     public Map<String,Object> createSheet(String key,String descriptor)throws IOException{
         String prompt="Character reference sheet of ONE unique Vietnamese person, strictly Southern Vietnamese facial features and skin tone. "+descriptor+". Consistent identity, age, face, hairstyle and clothing across front portrait, three-quarter portrait, side profile and full-body standing views. Neutral light background, bright clear lighting, realistic anatomy, no extra limbs, no duplicate different people, no written text, no letters, no watermark.";

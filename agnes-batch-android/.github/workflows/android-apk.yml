@@ -27,7 +27,16 @@ jobs:
       - name: Install Android platform
         run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
       - name: Android lint and APK build
-        run: gradle --no-daemon lintDebug assembleDebug
+        run: |
+          set +e
+          gradle --no-daemon lintDebug assembleDebug
+          build_status=$?
+          if [ -f app/build/reports/lint-results-debug.txt ]; then
+            cat app/build/reports/lint-results-debug.txt
+          elif [ -f app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt ]; then
+            cat app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
+          fi
+          exit "$build_status"
       - name: Verify APK signature and package
         shell: bash
         run: |
