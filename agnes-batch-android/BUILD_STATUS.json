@@ -1,0 +1,21 @@
+{
+  "artifact_type": "android_source_project",
+  "apk_included": false,
+  "android_build_verified": false,
+  "device_verified": false,
+  "live_agnes_verified": false,
+  "core_assertions_passed": 60,
+  "mock_http_protocol_verified": true,
+  "java_syntax_files_parsed": 13,
+  "xml_verified": true,
+  "build_blocker": "Android SDK unavailable; terminal SDK/Maven downloads time out. Browser binary downloads fail with a protocol error. GitHub browser sign-in was rejected by automatic approval review pending explicit account authorization.",
+  "github_build_prepared": true,
+  "github_build_executed": false,
+  "ci_apk_signature_verification_prepared": true,
+  "minimum_android": "10 (API 29)",
+  "provider_base_url": "https://apihub.agnes-ai.com",
+  "verified_api_duration_seconds": [
+    4,
+    12
+  ]
+}

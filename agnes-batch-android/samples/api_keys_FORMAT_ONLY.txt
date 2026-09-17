@@ -1,0 +1,3 @@
+# Đây chỉ là ví dụ định dạng. Hai dòng bên dưới KHÔNG phải key dùng được.
+YOUR_AGNES_API_KEY_1
+YOUR_AGNES_API_KEY_2
