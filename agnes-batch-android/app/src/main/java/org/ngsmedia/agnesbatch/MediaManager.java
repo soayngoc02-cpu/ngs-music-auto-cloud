@@ -41,7 +41,8 @@ public final class MediaManager {
                 if(cancel.stopped()||Thread.currentThread().isInterrupted())throw new InterruptedIOException("Đã tạm dừng.");
                 long needed=extractor.getSampleSize();if(needed>32L*1024*1024)throw new IOException("Video sample quá lớn.");if(needed>buffer.capacity())buffer=ByteBuffer.allocateDirect((int)needed);
                 buffer.clear();int n=extractor.readSampleData(buffer,0);if(n<0)break;
-                info.set(0,n,extractor.getSampleTime(),extractor.getSampleFlags()&MediaExtractor.SAMPLE_FLAG_SYNC);
+                int flags=(extractor.getSampleFlags()&MediaExtractor.SAMPLE_FLAG_SYNC)!=0?MediaCodec.BUFFER_FLAG_KEY_FRAME:0;
+                info.set(0,n,extractor.getSampleTime(),flags);
                 muxer.writeSampleData(outputTrack,buffer,info);extractor.advance();
             }
             muxer.stop();started=false;

@@ -12,6 +12,7 @@ import android.provider.OpenableColumns;
 import android.text.InputType;
 import android.view.*;
 import android.widget.*;
+import androidx.core.content.ContextCompat;
 import java.io.*;
 import java.util.*;
 import java.util.concurrent.*;
@@ -34,7 +35,7 @@ public final class MainActivity extends Activity {
         showScreen(tab);
     }
     @Override protected void onSaveInstanceState(Bundle state){super.onSaveInstanceState(state);state.putInt("tab",tab);state.putInt("frame",pendingImageIndex);state.putString("frameBatch",pendingImageBatch);}
-    @Override protected void onResume(){super.onResume();if(store==null)return;if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AppStore.CHANGED),Context.RECEIVER_NOT_EXPORTED);else registerReceiver(receiver,new IntentFilter(AppStore.CHANGED));handler.post(tick);}
+    @Override protected void onResume(){super.onResume();if(store==null)return;ContextCompat.registerReceiver(this,receiver,new IntentFilter(AppStore.CHANGED),ContextCompat.RECEIVER_NOT_EXPORTED);handler.post(tick);}
     @Override protected void onPause(){super.onPause();if(store!=null){unregisterReceiver(receiver);handler.removeCallbacks(tick);}}
     @Override protected void onDestroy(){io.shutdown();super.onDestroy();}
     private int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
