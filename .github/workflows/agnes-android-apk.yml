@@ -47,17 +47,23 @@ jobs:
           mkdir -p dist
           cp app/build/outputs/apk/debug/app-debug.apk dist/AgnesBatchAndroid.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs dist/AgnesBatchAndroid.apk | tee dist/APK_SIGNATURE.txt
-          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging dist/AgnesBatchAndroid.apk > dist/APK_PACKAGE.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging dist/AgnesBatchAndroid.apk | tee dist/APK_PACKAGE.txt
+          apkanalyzer manifest print dist/AgnesBatchAndroid.apk | tee dist/APK_MANIFEST.xml
           python3 - <<'PY'
-          import zipfile
+          import zipfile, xml.etree.ElementTree as ET
           with zipfile.ZipFile('dist/AgnesBatchAndroid.apk') as apk:
               assert apk.testzip() is None, 'APK archive is corrupt'
               for name in ('AndroidManifest.xml', 'classes.dex', 'resources.arsc'):
                   assert name in apk.namelist() and apk.getinfo(name).file_size > 0, name
-          package = open('dist/APK_PACKAGE.txt', encoding='utf-8').read()
-          assert "name='org.ngsmedia.agnesbatch'" in package, 'Unexpected package'
-          assert "sdkVersion:'29'" in package, 'Unexpected minimum Android version'
-          assert "launchable-activity: name='org.ngsmedia.agnesbatch.MainActivity'" in package, 'Launcher missing'
+          manifest = ET.parse('dist/APK_MANIFEST.xml').getroot()
+          android = '{http://schemas.android.com/apk/res/android}'
+          assert manifest.get('package') == 'org.ngsmedia.agnesbatch', 'Unexpected package'
+          sdk = manifest.find('uses-sdk')
+          assert sdk is not None and sdk.get(android+'minSdkVersion') == '29', 'Unexpected minimum Android version: '+str(sdk.attrib if sdk is not None else None)
+          assert sdk.get(android+'targetSdkVersion') == '35', 'Unexpected target Android version'
+          activity = next((a for a in manifest.findall('./application/activity') if a.get(android+'name') in ('.MainActivity', 'org.ngsmedia.agnesbatch.MainActivity')), None)
+          assert activity is not None and activity.get(android+'exported') == 'true', 'Main activity missing'
+          assert any(f.find("action[@"+android+"name='android.intent.action.MAIN']") is not None and f.find("category[@"+android+"name='android.intent.category.LAUNCHER']") is not None for f in activity.findall('intent-filter')), 'Launcher missing'
           PY
       - name: Compute APK checksum
         working-directory: agnes-batch-android/dist
