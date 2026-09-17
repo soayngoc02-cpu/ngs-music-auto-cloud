@@ -1,6 +1,8 @@
 # Agnes Batch Android V1
 
-**Tình trạng:** đã viết mã nguồn V1. Gói này **chưa có APK**, chưa chạy qua Gradle/Android lint và chưa kiểm thử trên máy Android thật. Môi trường tạo gói không có Android SDK và không tải được các gói SDK/Maven cần thiết. Script build và workflow GitHub được cung cấp để chạy trên môi trường có SDK và Internet.
+**Tình trạng:** V1 đã build thành APK, vượt qua Android lint (không có lỗi), kiểm tra chữ ký/package/launcher và 60 kiểm tra lõi với API giả lập. Chưa kiểm thử trên thiết bị Android hoặc bằng API key Agnes thật. Đây là bản debug để thử V1.
+
+[Build đã xác minh](https://github.com/soayngoc02-cpu/ngs-music-auto-cloud/actions/runs/35184449621). Tải artifact `AgnesBatchAndroid-APK`, giải nén và cài `AgnesBatchAndroid.apk` (khoảng 11 MB).
 
 Hỗ trợ **Android 10 trở lên**, giao diện tiếng Việt, ứng dụng native Java. Agnes tạo video trên server; điện thoại gửi yêu cầu, nhận video, lưu và ghép.
 
@@ -38,11 +40,13 @@ Có thể mở cả thư mục bằng Android Studio. Sau khi script tạo wrapp
 
 ## Tạo APK bằng GitHub Actions
 
-Đưa **nội dung thư mục này** vào một repository GitHub, bao gồm `.github/workflows/android-apk.yml`. Đừng chỉ upload nguyên file ZIP. Vào Actions → Build Android APK → Run workflow. Khi build thành công, tải artifact `AgnesBatchAndroid-APK`, giải nén và cài `AgnesBatchAndroid.apk`.
+Trong repo `soayngoc02-cpu/ngs-music-auto-cloud`, mã nguồn nằm ở `agnes-batch-android/`, workflow ở `.github/workflows/agnes-android-apk.yml` trên nhánh `build-agnes-apk`. Vào Actions → Build Android APK → Run workflow và chọn nhánh này. Khi build thành công, tải artifact `AgnesBatchAndroid-APK`, giải nén và cài `AgnesBatchAndroid.apk`.
 
-Workflow kiểm tra chữ ký bằng `apksigner`, kiểm tra package/launcher/Android tối thiểu bằng `aapt2`, kiểm tra cấu trúc ZIP và tạo SHA-256. Artifact kèm các báo cáo `APK_SIGNATURE.txt`, `APK_PACKAGE.txt`, `APK_SHA256.txt`. Chỉ tải lên artifact nếu các bước xác minh thành công. Đây là APK debug để thử V1.
+Nếu dùng repo khác, đưa **nội dung thư mục dự án này** vào repo, bao gồm `.github/workflows/android-apk.yml`. Workflow bên trong dự án dùng đường dẫn tương đối từ gốc repo.
 
-Workflow chưa được chạy trong phiên tạo mã nguồn. Không đưa API key thật vào repository; nhập key trong app sau khi cài.
+Workflow kiểm tra chữ ký bằng `apksigner`, kiểm tra package/launcher/Android tối thiểu bằng `aapt2`, kiểm tra cấu trúc ZIP và tạo SHA-256. Artifact kèm các báo cáo `APK_SIGNATURE.txt`, `APK_PACKAGE.txt`, `APK_MANIFEST.xml`, `APK_SHA256.txt`. `apkanalyzer` giải mã manifest để đối chiếu chính xác SDK và launcher. Chỉ tải lên artifact nếu các bước xác minh thành công. Đây là APK debug để thử V1.
+
+Workflow đã chạy thành công và file tải về đã được đối chiếu SHA-256. Không đưa API key thật vào repository; nhập key trong app sau khi cài.
 
 ## Cách dùng
 
@@ -111,7 +115,9 @@ Chạy `python3 tools/test_core.py` trên máy có Java 17 và Python 3. Bộ ki
 
 Đã vượt qua **60 kiểm tra**: đọc TXT và encoding, thời lượng, giới hạn batch, key trùng, JSON, phục hồi job, đúng cấu trúc request/polling, che key trong lỗi, không gửi key sang host media, ánh xạ ảnh sheet và thứ tự 50 cảnh hoàn thành ngược. Đã dùng Java compiler parse cú pháp toàn bộ 13 file Java của app.
 
-**Chưa kiểm tra:** build Android và Android lint, giao diện trên thiết bị, Android Keystore trên máy thật, MediaStore, codec/ghép Media3, Cloudinary thật và gọi Agnes bằng key thật. Kiểm tra lõi không thay thế việc cài và chạy thử APK.
+**Đã kiểm tra Android:** `lintDebug assembleDebug`, chữ ký APK v2 bằng `apksigner`, package/manifest/launcher, cấu trúc ZIP và SHA-256 sau khi tải. Android lint không có lỗi; vẫn có cảnh báo về nâng phiên bản thư viện, đa ngôn ngữ và khuyến nghị nền tảng.
+
+**Chưa kiểm tra:** giao diện trên thiết bị, Android Keystore trên máy thật, MediaStore, codec/ghép Media3, Cloudinary thật và gọi Agnes bằng key thật. Kiểm tra lõi không thay thế việc cài và chạy thử APK.
 
 ## Nguồn API
 
