@@ -31,7 +31,7 @@ jobs:
       - name: Restore app source
         run: |
           mkdir -p apk-source
-          echo 'af3b218e3c2f170f4ce0a960c1bf6f450b42cb12d3e67a3db768ac18b5654c41  yt-build/project.tar.xz.b64' | sha256sum -c -
+          echo '404aa0958cdf2aa645e20e635cf4e772e7af8df21a4908e3484fe8e8f166f1d8  yt-build/project.tar.xz.b64' | sha256sum -c -
           base64 --decode yt-build/project.tar.xz.b64 | tar -xJf - -C apk-source
           test -f apk-source/app/build.gradle
       - name: Compile signed debug APK
