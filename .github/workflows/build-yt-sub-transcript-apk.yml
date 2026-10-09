@@ -31,25 +31,25 @@ jobs:
       - name: Restore app source
         run: |
           mkdir -p apk-source
-          echo '1be6341258e91845baa8fc27f134cc52cd25f5f4a0862829018333d479a717b3  yt-build/project.tar.xz.b64' | sha256sum -c -
+          echo 'af3b218e3c2f170f4ce0a960c1bf6f450b42cb12d3e67a3db768ac18b5654c41  yt-build/project.tar.xz.b64' | sha256sum -c -
           base64 --decode yt-build/project.tar.xz.b64 | tar -xJf - -C apk-source
           test -f apk-source/app/build.gradle
       - name: Compile signed debug APK
         run: cd apk-source && gradle --no-daemon assembleDebug
       - name: Copy and validate APK
         run: |
-          install -Dm644 apk-source/app/build/outputs/apk/debug/app-debug.apk yt-build/YT-Sub-Transcript.apk
-          test -s yt-build/YT-Sub-Transcript.apk
-          unzip -t yt-build/YT-Sub-Transcript.apk | tail -1
-          sha256sum yt-build/YT-Sub-Transcript.apk
+          install -Dm644 apk-source/app/build/outputs/apk/debug/app-debug.apk yt-build/YT-Sub-Transcript-v1.1.apk
+          test -s yt-build/YT-Sub-Transcript-v1.1.apk
+          unzip -t yt-build/YT-Sub-Transcript-v1.1.apk | tail -1
+          sha256sum yt-build/YT-Sub-Transcript-v1.1.apk
       - name: Publish built APK to dedicated branch
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add yt-build/YT-Sub-Transcript.apk
+          git add yt-build/YT-Sub-Transcript-v1.1.apk
           git commit -m 'Built Android APK artifact'
           git push
       - uses: actions/upload-artifact@v4
         with:
-          name: YT-Sub-Transcript-APK
-          path: yt-build/YT-Sub-Transcript.apk
+          name: YT-Sub-Transcript-v1.1-APK
+          path: yt-build/YT-Sub-Transcript-v1.1.apk
