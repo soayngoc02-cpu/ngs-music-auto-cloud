@@ -4,6 +4,7 @@ on:
     branches: [build-yt-sub-apk-20261009]
     paths:
       - 'yt-build/project.tar.xz.b64'
+      - '.github/workflows/build-yt-sub-transcript-apk.yml'
   workflow_dispatch:
 jobs:
   build-apk:
@@ -16,15 +17,19 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
-      - name: Install Android SDK 35
-        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Install Android SDK 35 from preinstalled runner tools
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          command -v sdkmanager
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install 'platforms;android-35' 'build-tools;35.0.0'
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
       - name: Restore app source
         run: |
           mkdir -p apk-source
+          echo '1be6341258e91845baa8fc27f134cc52cd25f5f4a0862829018333d479a717b3  yt-build/project.tar.xz.b64' | sha256sum -c -
           base64 --decode yt-build/project.tar.xz.b64 | tar -xJf - -C apk-source
           test -f apk-source/app/build.gradle
       - name: Compile signed debug APK
