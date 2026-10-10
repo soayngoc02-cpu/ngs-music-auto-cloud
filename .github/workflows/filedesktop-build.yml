@@ -30,7 +30,7 @@ jobs:
           gradle-version: '8.11.1'
       - name: Restore project
         run: |
-          echo '30815f17260b802c0f4fc5a787111e4ea0afcc4ef123bbe76507434339c39c13  filedesktop-build/project.tar.xz.b64' | sha256sum -c -
+          echo '2c81b477710e76b87976cdb354a6337d8d93ea63399b8ea90ef7e74e163668a5  filedesktop-build/project.tar.xz.b64' | sha256sum -c -
           mkdir -p filedesktop-src
           base64 --decode filedesktop-build/project.tar.xz.b64 | tar -xJf - -C filedesktop-src
           test -f filedesktop-src/app/build.gradle
