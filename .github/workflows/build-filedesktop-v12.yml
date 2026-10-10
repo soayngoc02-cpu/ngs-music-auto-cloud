@@ -1,0 +1,55 @@
+name: Build File Desktop v1.2 APK
+on:
+  push:
+    branches: [build-file-desktop-v12-20261011]
+    paths:
+      - '.github/workflows/build-filedesktop-v12.yml'
+  workflow_dispatch:
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 35
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" --install 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Restore File Desktop source
+        run: |
+          echo '2c81b477710e76b87976cdb354a6337d8d93ea63399b8ea90ef7e74e163668a5  filedesktop-build/project.tar.xz.b64' | sha256sum -c -
+          mkdir -p filedesktop-src
+          base64 -d filedesktop-build/project.tar.xz.b64 | tar -xJf - -C filedesktop-src
+      - name: Apply dark theme and home shortcut updates
+        run: |
+          python3 filedesktop-build/apply-v11.py
+          python3 filedesktop-build/apply-v12.py filedesktop-src
+          grep -q 'requestPinShortcut(shortcut,null)' filedesktop-src/app/src/main/java/com/filedesktop/app/MainActivity.java
+          grep -q "applicationId 'com.filedesktop.app.pinned'" filedesktop-src/app/build.gradle
+      - name: Build Android APK
+        run: gradle -p filedesktop-src --no-daemon --stacktrace assembleDebug
+      - name: Validate and publish Android APK
+        run: |
+          install -Dm644 filedesktop-src/app/build/outputs/apk/debug/app-debug.apk filedesktop-build/FileDesktop-v1.2.apk
+          unzip -t filedesktop-build/FileDesktop-v1.2.apk | tail -n 1
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging filedesktop-build/FileDesktop-v1.2.apk | grep -E 'package:|application-label:'
+          sha256sum filedesktop-build/FileDesktop-v1.2.apk
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add filedesktop-build/FileDesktop-v1.2.apk
+          git commit -m 'Build File Desktop 1.2 APK'
+          git push
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FileDesktop-v1.2-APK
+          path: filedesktop-build/FileDesktop-v1.2.apk
