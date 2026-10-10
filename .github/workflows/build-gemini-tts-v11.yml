@@ -1,0 +1,57 @@
+name: Build Gemini TTS v1.1 APK
+on:
+  push:
+    branches: [build-gemini-tts-v11-20261011]
+    paths:
+      - '.github/workflows/build-gemini-tts-v11.yml'
+  workflow_dispatch:
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK
+        shell: bash
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" --install 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Restore Gemini TTS 1.1 project
+        run: |
+          set -e
+          cat gemini-tts-v11/source.part{0,1,2,3,4,5,6,7,8}.b64 > gemini-tts-v11/source.tar.xz.b64
+          echo '752ca8d63186c2a7be5437ed85d76518c538a428060b16438e552eeb744c16e2  gemini-tts-v11/source.tar.xz.b64' | sha256sum -c -
+          mkdir -p gemini-tts-v11-src
+          base64 -d gemini-tts-v11/source.tar.xz.b64 | tar -xJf - -C gemini-tts-v11-src
+          test -f gemini-tts-v11-src/app/build.gradle
+          grep -q 'versionName .1.1.' gemini-tts-v11-src/app/build.gradle
+          ! grep -q 'textBox\|styleBox' gemini-tts-v11-src/app/src/main/java/com/mekong/geminitts/MainActivity.java
+          test -f gemini-tts-v11-src/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+      - name: Assemble Android APK
+        run: gradle -p gemini-tts-v11-src --no-daemon --stacktrace assembleDebug
+      - name: Verify APK and publish
+        run: |
+          set -e
+          install -Dm644 gemini-tts-v11-src/app/build/outputs/apk/debug/app-debug.apk gemini-tts-v11/Gemini-TTS-Truyen-v1.1.apk
+          unzip -t gemini-tts-v11/Gemini-TTS-Truyen-v1.1.apk | tail -n 1
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging gemini-tts-v11/Gemini-TTS-Truyen-v1.1.apk | grep -E 'package:|application-label:|application-icon-'
+          sha256sum gemini-tts-v11/Gemini-TTS-Truyen-v1.1.apk
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add gemini-tts-v11/Gemini-TTS-Truyen-v1.1.apk
+          git commit -m 'Build Gemini TTS Truyen v1.1 APK'
+          git push
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Gemini-TTS-Truyen-v1.1-APK
+          path: gemini-tts-v11/Gemini-TTS-Truyen-v1.1.apk
