@@ -34,6 +34,20 @@ jobs:
           mkdir -p gemini-tts-src
           base64 -d gemini-tts-build/source.tar.xz.b64 | tar -xJf - -C gemini-tts-src
           test -f gemini-tts-src/app/build.gradle
+      - name: Fix TXT import compilation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('gemini-tts-src/app/src/main/java/com/mekong/geminitts/MainActivity.java')
+          x=p.read_text()
+          x=x.replace('String result=new String(bytes.toByteArray(),StandardCharsets.UTF_8);','String imported=new String(bytes.toByteArray(),StandardCharsets.UTF_8);')
+          x=x.replace('if(result.startsWith(', 'if(imported.startsWith(')
+          x=x.replace('result=result.substring(1);','imported=imported.substring(1);')
+          x=x.replace('textBox.setText(result);','textBox.setText(imported);')
+          x=x.replace('result.length()+" ký tự','imported.length()+" ký tự')
+          x=x.replace('Job.split(result).size()','Job.split(imported).size()')
+          p.write_text(x)
+          PY
       - name: Build debug APK
         run: gradle -p gemini-tts-src --no-daemon --stacktrace assembleDebug
       - name: Verify and publish APK
