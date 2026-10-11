@@ -1,0 +1,57 @@
+name: Build File Desktop v1.3 APK
+on:
+  push:
+    branches: [build-file-desktop-v13-20261011]
+    paths:
+      - '.github/workflows/build-filedesktop-v13.yml'
+  workflow_dispatch:
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Android SDK
+        shell: bash
+        run: |
+          set -e
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n1)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Restore verified source
+        run: |
+          set -e
+          cat filedesktop-v13/source.part{0,1,2,3,4}.b64 > filedesktop-v13/source.tar.xz.b64
+          echo '0b733a8661b6b3a2e6a8bfe356099a4b00c7d911f22c7a6c62f4857f8ba7d63d  filedesktop-v13/source.tar.xz.b64' | sha256sum -c -
+          mkdir -p filedesktop-src
+          base64 -d filedesktop-v13/source.tar.xz.b64 | tar -xJf - -C filedesktop-src
+          grep -q "applicationId 'com.filedesktop.app.viewer'" filedesktop-src/app/build.gradle
+          grep -q 'com.filedesktop.app.viewer.files' filedesktop-src/app/src/main/AndroidManifest.xml
+          grep -q 'com.filedesktop.app.viewer.files' filedesktop-src/app/src/main/java/com/filedesktop/app/LocalFileProvider.java
+      - name: Build debug APK
+        run: gradle -p filedesktop-src --no-daemon --stacktrace assembleDebug
+      - name: Check and publish
+        run: |
+          set -e
+          install -Dm644 filedesktop-src/app/build/outputs/apk/debug/app-debug.apk filedesktop-v13/FileDesktop-v1.3.apk
+          unzip -t filedesktop-v13/FileDesktop-v1.3.apk | tail -n 1
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging filedesktop-v13/FileDesktop-v1.3.apk | grep -E 'package:|application-label:'
+          sha256sum filedesktop-v13/FileDesktop-v1.3.apk
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add filedesktop-v13/FileDesktop-v1.3.apk
+          git commit -m 'Release File Desktop 1.3 APK with viewers'
+          git push
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FileDesktop-v1.3-APK
+          path: filedesktop-v13/FileDesktop-v1.3.apk
