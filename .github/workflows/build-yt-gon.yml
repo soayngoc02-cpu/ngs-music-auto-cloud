@@ -1,4 +1,5 @@
 name: Build YT Gon Android v1.0
+# SDK 36 compatibility rebuild
 on:
   push:
     branches: [build-yt-gon-20261023]
