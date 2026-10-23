@@ -9,6 +9,15 @@ assert 'NEWPIPE_VERSION_SDK_COMPILE_MAJOR = 37' in project_config
 config.write_text(project_config.replace(
     'NEWPIPE_VERSION_SDK_COMPILE_MAJOR = 37',
     'NEWPIPE_VERSION_SDK_COMPILE_MAJOR = 36'))
+
+# The newest AndroidX versions depend on SDK 37. Use last SDK-36-compatible versions.
+versions_path = root / 'gradle/libs.versions.toml'
+versions = versions_path.read_text()
+assert 'core = "1.19.0"' in versions
+assert 'lifecycle = "2.11.0"' in versions
+versions = versions.replace('core = "1.19.0"', 'core = "1.18.0"')
+versions = versions.replace('lifecycle = "2.11.0"', 'lifecycle = "2.10.0"')
+versions_path.write_text(versions)
 app_build = root / 'app/build.gradle.kts'
 s = app_build.read_text()
 s = s.replace('applicationId = NEWPIPE_APPLICATION_ID_OLD', 'applicationId = "com.binh.ytgon"')
