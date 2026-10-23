@@ -199,7 +199,7 @@ config_text = config.read_text()
 assert 'NEWPIPE_VERSION_NAME = "0.29.1"' in config_text
 assert 'NEWPIPE_VERSION_CODE = 1015' in config_text
 config.write_text(config_text.replace('NEWPIPE_VERSION_NAME = "0.29.1"',
-                                      'NEWPIPE_VERSION_NAME = "1.1"')
+                                      'NEWPIPE_VERSION_NAME = "1.1.0"')
                             .replace('NEWPIPE_VERSION_CODE = 1015',
                                      'NEWPIPE_VERSION_CODE = 1016'))
 
