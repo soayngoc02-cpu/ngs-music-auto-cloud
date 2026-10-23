@@ -4,7 +4,7 @@ on:
   push:
     branches: [build-yt-gon-v11-20261023]
     paths:
-      - ' .github/workflows/build-yt-gon-v11.yml'
+      - '.github/workflows/build-yt-gon-v11.yml'
   workflow_dispatch:
 jobs:
   assemble:
