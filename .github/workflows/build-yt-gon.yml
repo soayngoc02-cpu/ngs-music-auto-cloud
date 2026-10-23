@@ -28,7 +28,7 @@ jobs:
           SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n1)"
           test -n "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses > /dev/null || true
-          "$SDKMANAGER" --install 'platforms;android-37' 'build-tools;36.0.0'
+          "$SDKMANAGER" --install 'platforms;android-36' 'build-tools;36.0.0'
       - name: Apply YT Gon modifications
         run: |
           set -e
