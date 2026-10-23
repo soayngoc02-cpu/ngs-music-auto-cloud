@@ -1,6 +1,14 @@
 from pathlib import Path
 
 root = Path('.')
+
+# Hosted Android runners currently provide stable SDK 36, not preview SDK 37.
+config = root / 'buildSrc/src/main/kotlin/ProjectConfig.kt'
+project_config = config.read_text()
+assert 'NEWPIPE_VERSION_SDK_COMPILE_MAJOR = 37' in project_config
+config.write_text(project_config.replace(
+    'NEWPIPE_VERSION_SDK_COMPILE_MAJOR = 37',
+    'NEWPIPE_VERSION_SDK_COMPILE_MAJOR = 36'))
 app_build = root / 'app/build.gradle.kts'
 s = app_build.read_text()
 s = s.replace('applicationId = NEWPIPE_APPLICATION_ID_OLD', 'applicationId = "com.binh.ytgon"')
